@@ -1,0 +1,63 @@
+import { messagingApi, webhook } from "@line/bot-sdk";
+
+type LineEvent = webhook.Event;
+
+const WELCOME_ON_FOLLOW = "歡迎加入好友！有問題隨時傳訊息給我。";
+const WELCOME_ON_JOIN = "大家好！我已加入此聊天室，請多指教。";
+
+function createMessagingClient(channelAccessToken: string) {
+  return new messagingApi.MessagingApiClient({ channelAccessToken });
+}
+
+function textMessage(text: string) {
+  return { type: "text" as const, text };
+}
+
+/**
+ * 處理單一 Webhook 事件（Follow / Join 歡迎訊息、文字訊息回聲）。
+ */
+export async function handleLineEvent(
+  client: messagingApi.MessagingApiClient,
+  event: LineEvent
+): Promise<void> {
+  switch (event.type) {
+    case "follow":
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [textMessage(WELCOME_ON_FOLLOW)],
+      });
+      return;
+    case "join":
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [textMessage(WELCOME_ON_JOIN)],
+      });
+      return;
+    case "message": {
+      const token = event.replyToken;
+      if (!token) return;
+
+      if (event.message.type === "text") {
+        await client.replyMessage({
+          replyToken: token,
+          messages: [textMessage(event.message.text)],
+        });
+      }
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+/**
+ * 批次處理 Webhook 事件陣列。
+ */
+export async function handleLineEvents(
+  events: LineEvent[],
+  channelAccessToken: string
+): Promise<void> {
+  if (events.length === 0) return;
+  const client = createMessagingClient(channelAccessToken);
+  await Promise.all(events.map((event) => handleLineEvent(client, event)));
+}

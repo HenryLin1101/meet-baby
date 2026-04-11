@@ -1,0 +1,15 @@
+# dependencies
+node_modules/
+
+# env secrets (never commit)
+.env
+.env.local
+.env.*.local
+
+# Next.js
+.next/
+out/
+
+# misc
+.DS_Store
+*.log

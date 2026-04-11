@@ -1,0 +1,8 @@
+{
+  "name": "mite-baby",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@line/bot-sdk": "^11.0.0"
+  }
+}
