@@ -3,7 +3,7 @@ import {
   validateSignature,
   webhook,
 } from "@line/bot-sdk";
-import { handleLineEvents } from "../../../lib/line/handleLineEvent";
+import { handleLineEvents } from "@/lib/line/handleLineEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
