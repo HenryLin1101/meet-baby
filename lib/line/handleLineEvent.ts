@@ -20,6 +20,11 @@ export async function handleLineEvent(
   client: messagingApi.MessagingApiClient,
   event: LineEvent
 ): Promise<void> {
+  // 後台「聊天」啟用時事件常為 standby，此時 reply 多數會被 LINE 拒絕（400）
+  if (event.mode === "standby") {
+    return;
+  }
+
   switch (event.type) {
     case "follow":
       await client.replyMessage({

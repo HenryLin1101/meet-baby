@@ -1,4 +1,5 @@
 import {
+  HTTPFetchError,
   LINE_SIGNATURE_HTTP_HEADER_NAME,
   validateSignature,
   webhook,
@@ -9,8 +10,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const channelSecret = process.env.LINE_CHANNEL_SECRET;
-  const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  const channelSecret = process.env.LINE_CHANNEL_SECRET?.trim();
+  const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim();
 
   if (!channelSecret || !channelAccessToken) {
     return new Response("LINE env not configured", { status: 500 });
@@ -34,7 +35,12 @@ export async function POST(request: Request) {
 
   try {
     await handleLineEvents(events, channelAccessToken);
-  } catch {
+  } catch (err) {
+    if (err instanceof HTTPFetchError) {
+      console.error("[LINE API]", err.status, err.statusText, err.body);
+    } else {
+      console.error("[LINE webhook handler]", err);
+    }
     return new Response("Handler error", { status: 500 });
   }
 
