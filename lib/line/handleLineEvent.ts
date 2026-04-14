@@ -15,6 +15,13 @@ function textMessage(text: string) {
   return { type: "text" as const, text };
 }
 
+function isBotMentioned(
+  message: webhook.TextMessageContent
+): boolean {
+  if (!message.mention) return false;
+  return message.mention.mentionees.some((mentionee) => mentionee.type === "user" && mentionee.isSelf);
+}
+
 /**
  * 處理單一 Webhook 事件（Follow / Join 歡迎訊息、文字訊息回聲）。
  */
@@ -45,6 +52,9 @@ export async function handleLineEvent(
       if (!token) return;
 
       if (event.message.type === "text") {
+        // Only run commands if bot is mentioned
+        if (!isBotMentioned(event.message)) return;
+
         const routedCommand = routeCommand(event.message.text);
         const replyText = routedCommand
           ? (await routedCommand.handler(routedCommand.context)).text
