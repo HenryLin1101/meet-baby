@@ -53,6 +53,11 @@ function isBotMentioned(message: webhook.TextMessageContent): boolean {
   );
 }
 
+function isNameMentioned(message: webhook.TextMessageContent): boolean {
+  const set = new Set(["米特寶寶", "米特", "米寶"]);
+  return set.has(normalizeText(message.text));
+}
+
 function buildConversationKey(event: LineMessageEvent): string | null {
   const source = event.source;
   if (!source) return null;
@@ -179,7 +184,7 @@ async function handleTextMessage(
   }
 
   // 新對話：必須 mention 機器人才會觸發
-  if (!isBotMentioned(event.message)) return;
+  if (!isBotMentioned(event.message) && !isNameMentioned(event.message)) return;
 
   const routed = routeCommand(rawText);
   if (!routed) {
