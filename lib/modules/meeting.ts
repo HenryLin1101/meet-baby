@@ -1,15 +1,26 @@
 /**
- * 會議相關邏輯（目前為固定回覆，之後可改為建立／查詢會議等）。
+ * 會議相關邏輯。目前以記憶體陣列暫存，之後可換成資料庫。
  */
-export function getMeetingReplyMessage(): string {
-  return "確認會議資訊：\n\n" +
-          "- 會議主題：\n" +
-          "- 會議時間：\n" +
-          "- 會議地點：\n" +
-          "- 會議參與者：\n" +
-          "- 會議議程：\n" +
-          "- 會議附件：\n" +
-          "- 會議備註：\n" +
-          "- 會議狀態：\n" +
-          "- 會議進度：\n";
+
+export type MeetingDraft = {
+  title: string;
+  time: string;
+};
+
+const meetings: MeetingDraft[] = [];
+
+/** 粗略解析時間格式：YYYY-MM-DD HH:mm。格式不合回傳 null。 */
+export function parseMeetingTime(input: string): string | null {
+  const trimmed = input.trim();
+  const ok = /^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}$/.test(trimmed);
+  return ok ? trimmed : null;
+}
+
+export function createMeeting(draft: MeetingDraft): MeetingDraft {
+  meetings.push(draft);
+  return draft;
+}
+
+export function listMeetings(): readonly MeetingDraft[] {
+  return meetings;
 }

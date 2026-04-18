@@ -5,7 +5,7 @@ import { CommandHandlerBase } from "@/lib/modules/types";
 
 const EXPLICIT_PREFIXES = ["/", "!"] as const;
 
-/** 註冊順序會影響關鍵字同時命中時的優先權（先註冊者優先）。 */
+/** 註冊順序影響關鍵字同時命中時的優先權（先註冊者優先）。 */
 const registeredCommands: CommandHandlerBase[] = [
   new HelpCommand(),
   new MeetingCommand(),
@@ -16,11 +16,15 @@ const commandByName = Object.fromEntries(
 ) as Record<string, CommandHandlerBase>;
 
 export type RoutedCommand = {
-  handler: CommandHandlerBase["handle"];
+  command: CommandHandlerBase;
   context: CommandContext;
 };
 
-function normalizeText(text: string): string {
+export function getCommandByName(name: string): CommandHandlerBase | null {
+  return commandByName[name] ?? null;
+}
+
+export function normalizeText(text: string): string {
   return text.trim().toLowerCase();
 }
 
@@ -55,10 +59,10 @@ export function routeCommand(rawText: string): RoutedCommand | null {
   const explicit = parseExplicitCommand(normalizedText);
 
   if (explicit) {
-    const cmd = commandByName[explicit.command];
-    if (!cmd) return null;
+    const command = commandByName[explicit.command];
+    if (!command) return null;
     return {
-      handler: cmd.handle.bind(cmd),
+      command,
       context: {
         rawText,
         normalizedText,
@@ -67,18 +71,13 @@ export function routeCommand(rawText: string): RoutedCommand | null {
     };
   }
 
-  const keywordCommandName = resolveKeywordCommandName(normalizedText);
-  if (!keywordCommandName) return null;
-
-  const cmd = commandByName[keywordCommandName];
-  if (!cmd) return null;
+  const keywordName = resolveKeywordCommandName(normalizedText);
+  if (!keywordName) return null;
+  const command = commandByName[keywordName];
+  if (!command) return null;
 
   return {
-    handler: cmd.handle.bind(cmd),
-    context: {
-      rawText,
-      normalizedText,
-      args: [],
-    },
+    command,
+    context: { rawText, normalizedText, args: [] },
   };
 }

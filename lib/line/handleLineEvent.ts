@@ -1,75 +1,239 @@
 import { messagingApi, webhook } from "@line/bot-sdk";
-import { routeCommand } from "@/lib/line/commandRouter";
+import { getCommandByName, normalizeText, routeCommand } from "@/lib/line/commandRouter";
+import {
+  clearConversationState,
+  getConversationState,
+  setConversationState,
+  type ConversationState,
+} from "@/lib/conversation/state";
+import type {
+  CommandContext,
+  ConversationUpdate,
+  QuickReplyOption,
+} from "@/lib/modules/types";
 
 type LineEvent = webhook.Event;
+type LineMessageEvent = Extract<LineEvent, { type: "message" }>;
 
 const WELCOME_ON_FOLLOW = "歡迎加入好友！有問題隨時傳訊息給我。";
 const WELCOME_ON_JOIN = "大家好！我已加入此聊天室，請多指教。";
-const COMMAND_NOT_FOUND = "我目前看不懂這個指令，請輸入 help 或 /help。";
+const COMMAND_NOT_FOUND = "我目前看不懂這個指令，請輸入 /help。";
+
+const CANCEL_KEYWORDS = new Set(["cancel", "取消"]);
+const CANCEL_QUICK_REPLY: QuickReplyOption = { label: "取消", text: "取消" };
 
 function createMessagingClient(channelAccessToken: string) {
   return new messagingApi.MessagingApiClient({ channelAccessToken });
 }
 
-function textMessage(text: string) {
-  return { type: "text" as const, text };
+function textMessage(text: string, quickReplies?: QuickReplyOption[]) {
+  if (!quickReplies || quickReplies.length === 0) {
+    return { type: "text" as const, text };
+  }
+  return {
+    type: "text" as const,
+    text,
+    quickReply: {
+      items: quickReplies.map((qr) => ({
+        type: "action" as const,
+        action: {
+          type: "message" as const,
+          label: qr.label,
+          text: qr.text,
+        },
+      })),
+    },
+  };
 }
 
-function isBotMentioned(
-  message: webhook.TextMessageContent
-): boolean {
+function isBotMentioned(message: webhook.TextMessageContent): boolean {
   if (!message.mention) return false;
-  return message.mention.mentionees.some((mentionee) => mentionee.type === "user" && mentionee.isSelf);
+  return message.mention.mentionees.some(
+    (mentionee) => mentionee.type === "user" && mentionee.isSelf
+  );
 }
+
+function buildConversationKey(event: LineMessageEvent): string | null {
+  const source = event.source;
+  if (!source) return null;
+  if (source.type === "group") return `group:${source.groupId}:${source.userId ?? "anon"}`;
+  if (source.type === "room") return `room:${source.roomId}:${source.userId ?? "anon"}`;
+  if (source.type === "user") return `user:${source.userId}`;
+  return null;
+}
+
+function buildContext(rawText: string): CommandContext {
+  return {
+    rawText,
+    normalizedText: normalizeText(rawText),
+    args: [],
+  };
+}
+
+function applyUpdate(
+  conversationKey: string,
+  commandName: string,
+  update: ConversationUpdate
+): void {
+  if (!update.next) return;
+  if (update.next === "end") {
+    clearConversationState(conversationKey);
+    return;
+  }
+  setConversationState(conversationKey, {
+    commandName,
+    step: update.next.step,
+    data: update.next.data,
+  });
+}
+
+async function reply(
+  client: messagingApi.MessagingApiClient,
+  replyToken: string,
+  text: string,
+  quickReplies?: QuickReplyOption[]
+) {
+  await client.replyMessage({
+    replyToken,
+    messages: [textMessage(text, quickReplies)],
+  });
+}
+
+function injectCancelQuickReply(
+  quickReplies: QuickReplyOption[] | undefined
+): QuickReplyOption[] {
+  const existing = quickReplies ?? [];
+  const hasCancel = existing.some((qr) =>
+    CANCEL_KEYWORDS.has(qr.text.trim().toLowerCase())
+  );
+  return hasCancel ? existing : [...existing, CANCEL_QUICK_REPLY];
+}
+
+async function replyUpdate(
+  client: messagingApi.MessagingApiClient,
+  replyToken: string,
+  update: ConversationUpdate,
+  willBeInFlow: boolean
+) {
+  const quickReplies = willBeInFlow
+    ? injectCancelQuickReply(update.quickReplies)
+    : update.quickReplies;
+  await reply(client, replyToken, update.reply, quickReplies);
+}
+
+/** 處理已在多輪流程中的下一則訊息；回傳是否已處理。 */
+async function handleContinuedConversation(
+  client: messagingApi.MessagingApiClient,
+  event: LineMessageEvent,
+  conversationKey: string,
+  activeState: ConversationState,
+  rawText: string
+): Promise<boolean> {
+  const cmd = getCommandByName(activeState.commandName);
+  if (!cmd?.continueConversation) {
+    clearConversationState(conversationKey);
+    return false;
+  }
+
+  const update = await cmd.continueConversation(activeState, buildContext(rawText));
+  applyUpdate(conversationKey, cmd.name, update);
+  // 多輪回覆中，除非明確結束，否則仍在流程裡 → 加上取消按鈕
+  const willBeInFlow = update.next !== "end";
+  if (event.replyToken) {
+    await replyUpdate(client, event.replyToken, update, willBeInFlow);
+  }
+  return true;
+}
+
+async function handleTextMessage(
+  client: messagingApi.MessagingApiClient,
+  event: LineMessageEvent
+): Promise<void> {
+  if (event.message.type !== "text") return;
+  const token = event.replyToken;
+  if (!token) return;
+
+  const rawText = event.message.text;
+  const conversationKey = buildConversationKey(event);
+  const activeState = conversationKey ? getConversationState(conversationKey) : null;
+
+  // 全域 cancel：有對話就清掉；沒對話且非 mention 就忽略
+  if (CANCEL_KEYWORDS.has(normalizeText(rawText))) {
+    if (conversationKey && activeState) {
+      clearConversationState(conversationKey);
+      await reply(client, token, "已取消目前的流程。");
+    }
+    return;
+  }
+
+  // 已在多輪對話中：不要求 mention，直接交給該 command 繼續
+  if (conversationKey && activeState) {
+    const handled = await handleContinuedConversation(
+      client,
+      event,
+      conversationKey,
+      activeState,
+      rawText
+    );
+    if (handled) return;
+  }
+
+  // 新對話：必須 mention 機器人才會觸發
+  if (!isBotMentioned(event.message)) return;
+
+  const routed = routeCommand(rawText);
+  if (!routed) {
+    await reply(client, token, COMMAND_NOT_FOUND);
+    return;
+  }
+
+  const update = await routed.command.start(routed.context);
+  if (conversationKey) {
+    applyUpdate(conversationKey, routed.command.name, update);
+  }
+  const willBeInFlow = !!update.next && update.next !== "end";
+  await replyUpdate(client, token, update, willBeInFlow);
+}
+
+type LineEventHandler = (
+  client: messagingApi.MessagingApiClient,
+  event: LineEvent
+) => Promise<void>;
+
+const eventHandlers: Partial<Record<LineEvent["type"], LineEventHandler>> = {
+  follow: async (client, event) => {
+    if (event.type !== "follow") return;
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [textMessage(WELCOME_ON_FOLLOW)],
+    });
+  },
+  join: async (client, event) => {
+    if (event.type !== "join") return;
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [textMessage(WELCOME_ON_JOIN)],
+    });
+  },
+  message: async (client, event) => {
+    if (event.type !== "message") return;
+    await handleTextMessage(client, event);
+  },
+};
 
 /**
- * 處理單一 Webhook 事件（Follow / Join 歡迎訊息、文字訊息回聲）。
+ * 處理單一 Webhook 事件。
  */
 export async function handleLineEvent(
   client: messagingApi.MessagingApiClient,
   event: LineEvent
 ): Promise<void> {
   // 後台「聊天」啟用時事件常為 standby，此時 reply 多數會被 LINE 拒絕（400）
-  if (event.mode === "standby") {
-    return;
-  }
+  if (event.mode === "standby") return;
 
-  switch (event.type) {
-    case "follow":
-      await client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [textMessage(WELCOME_ON_FOLLOW)],
-      });
-      return;
-    case "join":
-      await client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [textMessage(WELCOME_ON_JOIN)],
-      });
-      return;
-    case "message": {
-      const token = event.replyToken;
-      if (!token) return;
-
-      if (event.message.type === "text") {
-        // Only run commands if bot is mentioned
-        if (!isBotMentioned(event.message)) return;
-
-        const routedCommand = routeCommand(event.message.text);
-        const replyText = routedCommand
-          ? (await routedCommand.handler(routedCommand.context)).text
-          : COMMAND_NOT_FOUND;
-
-        await client.replyMessage({
-          replyToken: token,
-          messages: [textMessage(replyText)],
-        });
-      }
-      return;
-    }
-    default:
-      return;
-  }
+  const handler = eventHandlers[event.type];
+  if (!handler) return;
+  await handler(client, event);
 }
 
 /**

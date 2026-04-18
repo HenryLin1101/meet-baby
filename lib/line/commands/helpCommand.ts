@@ -1,28 +1,21 @@
 import {
   CommandHandlerBase,
-  type CommandContext,
-  type CommandResult,
+  type ConversationUpdate,
 } from "@/lib/modules/types";
-
-
 
 const HELP_MESSAGE = [
   "可用指令：",
   "/help 或 !help：顯示這份說明",
-  "/meeting 或 !meeting：會議相關（開發中）",
+  "/meeting 或 !meeting：預約會議（多輪對話）",
   "",
-  "你也可以直接輸入「幫助」或「help」；「會議」或「meeting」可觸發會議說明。",
+  "對話中隨時輸入「取消」或「cancel」可中止目前流程。",
 ].join("\n");
-
-
 
 export class HelpCommand extends CommandHandlerBase {
   readonly name = "help";
   readonly keywords = ["help", "幫助", "指令"] as const;
 
-  async handle(context: CommandContext): Promise<CommandResult> {
-    void context;
-    return { text: HELP_MESSAGE };
+  start(): ConversationUpdate {
+    return { reply: HELP_MESSAGE };
   }
-
 }
