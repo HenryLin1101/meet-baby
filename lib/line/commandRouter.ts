@@ -1,4 +1,5 @@
 import { HelpCommand } from "@/lib/line/commands/helpCommand";
+import { LiffCommand } from "@/lib/line/commands/liffCommand";
 import { MeetingCommand } from "@/lib/line/commands/meetingCommand";
 import type { CommandContext } from "@/lib/modules/types";
 import { CommandHandlerBase } from "@/lib/modules/types";
@@ -9,6 +10,7 @@ const EXPLICIT_PREFIXES = ["/", "!"] as const;
 const registeredCommands: CommandHandlerBase[] = [
   new HelpCommand(),
   new MeetingCommand(),
+  new LiffCommand(),
 ];
 
 const commandByName = Object.fromEntries(

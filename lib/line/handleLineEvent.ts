@@ -39,11 +39,9 @@ function textMessage(text: string, quickReplies?: QuickReplyOption[]) {
     quickReply: {
       items: quickReplies.map((qr) => ({
         type: "action" as const,
-        action: {
-          type: "message" as const,
-          label: qr.label,
-          text: qr.text,
-        },
+        action: qr.uri
+          ? { type: "uri" as const, label: qr.label, uri: qr.uri }
+          : { type: "message" as const, label: qr.label, text: qr.text },
       })),
     },
   };
@@ -148,8 +146,10 @@ function injectCancelQuickReply(
   quickReplies: QuickReplyOption[] | undefined
 ): QuickReplyOption[] {
   const existing = quickReplies ?? [];
-  const hasCancel = existing.some((qr) =>
-    CANCEL_KEYWORDS.has(qr.text.trim().toLowerCase())
+  const hasCancel = existing.some(
+    (qr) =>
+      typeof qr.text === "string" &&
+      CANCEL_KEYWORDS.has(qr.text.trim().toLowerCase())
   );
   return hasCancel ? existing : [...existing, CANCEL_QUICK_REPLY];
 }

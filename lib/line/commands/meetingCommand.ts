@@ -7,6 +7,7 @@ import {
   CommandHandlerBase,
   type CommandContext,
   type ConversationUpdate,
+  type QuickReplyOption,
 } from "@/lib/modules/types";
 
 const STEP_AWAIT_TITLE = "awaitingTitle";
@@ -16,14 +17,37 @@ const STEP_AWAIT_CONFIRM = "awaitingConfirm";
 const YES_ANSWERS = new Set(["是", "y", "yes", "確認", "ok"]);
 const NO_ANSWERS = new Set(["否", "n", "no", "取消確認"]);
 
+/** 文字模式子指令：點「改用聊天填寫」時會送出這段文字，要有別名讓 bot 被喚醒。 */
+const TEXT_MODE_PAYLOAD = "米特寶寶 /meeting text";
+
+function buildLiffUrl(): string | null {
+  const id = process.env.NEXT_PUBLIC_LIFF_ID?.trim();
+  return id ? `https://liff.line.me/${id}` : null;
+}
+
 export class MeetingCommand extends CommandHandlerBase {
   readonly name = "meeting";
   readonly keywords = ["meeting", "會議", "預約"] as const;
 
-  start(): ConversationUpdate {
+  start(context: CommandContext): ConversationUpdate {
+    const mode = context.args[0];
+    const liffUrl = buildLiffUrl();
+
+    // 明確選擇走文字流程，或沒設定 LIFF 時直接進文字流程
+    if (mode === "text" || !liffUrl) {
+      return {
+        reply: "開始預約會議。請輸入會議主題：",
+        next: { step: STEP_AWAIT_TITLE, data: {} },
+      };
+    }
+
+    const quickReplies: QuickReplyOption[] = [
+      { label: "開啟預約表單", uri: liffUrl },
+      { label: "改用聊天填寫", text: TEXT_MODE_PAYLOAD },
+    ];
     return {
-      reply: "開始預約會議。請輸入會議主題：",
-      next: { step: STEP_AWAIT_TITLE, data: {} },
+      reply: "請選擇預約方式：",
+      quickReplies,
     };
   }
 

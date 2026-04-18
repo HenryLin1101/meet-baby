@@ -6,11 +6,14 @@ export type CommandContext = {
   args: string[];
 };
 
-/** Quick reply 按鈕：點擊後會替使用者送出 text 作為新訊息。 */
-export type QuickReplyOption = {
-  label: string;
-  text: string;
-};
+/**
+ * Quick reply 按鈕。
+ * - 含 text：點擊後會替使用者送出 text 作為新訊息（message action）。
+ * - 含 uri：點擊後會開啟該 URI（URI action，常用於 LIFF 連結）。
+ */
+export type QuickReplyOption =
+  | { label: string; text: string; uri?: never }
+  | { label: string; uri: string; text?: never };
 
 /**
  * Command handler 的回覆 + 會話狀態更新指示。
