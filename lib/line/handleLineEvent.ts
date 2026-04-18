@@ -22,6 +22,9 @@ const COMMAND_NOT_FOUND = "我目前看不懂這個指令，請輸入 /help。";
 const CANCEL_KEYWORDS = new Set(["cancel", "取消"]);
 const CANCEL_QUICK_REPLY: QuickReplyOption = { label: "取消", text: "取消" };
 
+/** 在群組中沒有 @ 也能喚醒機器人的別名。 */
+const BOT_ALIASES = ["米特寶寶", "米特", "米寶"] as const;
+
 function createMessagingClient(channelAccessToken: string) {
   return new messagingApi.MessagingApiClient({ channelAccessToken });
 }
@@ -46,16 +49,53 @@ function textMessage(text: string, quickReplies?: QuickReplyOption[]) {
   };
 }
 
-function isBotMentioned(message: webhook.TextMessageContent): boolean {
-  if (!message.mention) return false;
-  return message.mention.mentionees.some(
-    (mentionee) => mentionee.type === "user" && mentionee.isSelf
+/** 若訊息 @ 到本機器人，回傳剝掉該段後的文字；否則回傳 null。 */
+function stripBotMention(message: webhook.TextMessageContent): string | null {
+  if (!message.mention) return null;
+  const self = message.mention.mentionees.find(
+    (m) => m.type === "user" && m.isSelf
   );
+  if (!self || typeof self.index !== "number" || typeof self.length !== "number") {
+    return null;
+  }
+  const start = self.index;
+  const end = start + self.length;
+  return (message.text.slice(0, start) + message.text.slice(end)).trim();
 }
 
-function isNameMentioned(message: webhook.TextMessageContent): boolean {
-  const set = new Set(["米特寶寶", "米特", "米寶"]);
-  return set.has(normalizeText(message.text));
+/** 若文字以別名開頭，回傳去前綴後的文字；否則回傳 null。 */
+function stripBotAlias(text: string): string | null {
+  const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
+  // 長別名優先，避免「米特寶寶」被「米特」先吃掉
+  const aliases = [...BOT_ALIASES].sort((a, b) => b.length - a.length);
+  for (const alias of aliases) {
+    if (lower.startsWith(alias.toLowerCase())) {
+      return trimmed.slice(alias.length).trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * 判斷是否被叫到，並回傳乾淨的指令文字。
+ * - addressed：是否有 @ 或以別名開頭
+ * - text：去掉 @ / 別名後的內容（不論 addressed，都可安全拿去後續比對 / routing）
+ */
+function resolveAddress(message: webhook.TextMessageContent): {
+  addressed: boolean;
+  text: string;
+} {
+  const afterMention = stripBotMention(message);
+  if (afterMention !== null) {
+    // @ 後的文字若仍以別名開頭，一併剝掉
+    return { addressed: true, text: stripBotAlias(afterMention) ?? afterMention };
+  }
+  const afterAlias = stripBotAlias(message.text);
+  if (afterAlias !== null) {
+    return { addressed: true, text: afterAlias };
+  }
+  return { addressed: false, text: message.text.trim() };
 }
 
 function buildConversationKey(event: LineMessageEvent): string | null {
@@ -158,12 +198,12 @@ async function handleTextMessage(
   const token = event.replyToken;
   if (!token) return;
 
-  const rawText = event.message.text;
+  const { addressed, text: cleanedText } = resolveAddress(event.message);
   const conversationKey = buildConversationKey(event);
   const activeState = conversationKey ? getConversationState(conversationKey) : null;
 
-  // 全域 cancel：有對話就清掉；沒對話且非 mention 就忽略
-  if (CANCEL_KEYWORDS.has(normalizeText(rawText))) {
+  // 全域 cancel：有對話就清掉；沒對話就忽略
+  if (CANCEL_KEYWORDS.has(normalizeText(cleanedText))) {
     if (conversationKey && activeState) {
       clearConversationState(conversationKey);
       await reply(client, token, "已取消目前的流程。");
@@ -171,22 +211,22 @@ async function handleTextMessage(
     return;
   }
 
-  // 已在多輪對話中：不要求 mention，直接交給該 command 繼續
+  // 已在多輪對話中：不要求 mention，直接交給該 command 繼續（cleanedText 已去掉 @/別名）
   if (conversationKey && activeState) {
     const handled = await handleContinuedConversation(
       client,
       event,
       conversationKey,
       activeState,
-      rawText
+      cleanedText
     );
     if (handled) return;
   }
 
-  // 新對話：必須 mention 機器人才會觸發
-  if (!isBotMentioned(event.message) && !isNameMentioned(event.message)) return;
+  // 新對話：必須有叫到 bot（@ 或別名）才會觸發
+  if (!addressed) return;
 
-  const routed = routeCommand(rawText);
+  const routed = routeCommand(cleanedText);
   if (!routed) {
     await reply(client, token, COMMAND_NOT_FOUND);
     return;
