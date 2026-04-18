@@ -1,18 +1,22 @@
-import { helpCommand } from "@/lib/line/commands/helpCommand";
-import type {
-  CommandContext,
-  CommandHandler,
-} from "@/lib/line/commands/types";
+import { HelpCommand } from "@/lib/line/commands/helpCommand";
+import { MeetingCommand } from "@/lib/line/commands/meetingCommand";
+import type { CommandContext } from "@/lib/modules/types";
+import { CommandHandlerBase } from "@/lib/modules/types";
 
 const EXPLICIT_PREFIXES = ["/", "!"] as const;
-const HELP_KEYWORDS = ["help", "幫助", "指令"] as const;
 
-const commandHandlers: Record<string, CommandHandler> = {
-  help: helpCommand,
-};
+/** 註冊順序會影響關鍵字同時命中時的優先權（先註冊者優先）。 */
+const registeredCommands: CommandHandlerBase[] = [
+  new HelpCommand(),
+  new MeetingCommand(),
+];
+
+const commandByName = Object.fromEntries(
+  registeredCommands.map((cmd) => [cmd.name, cmd])
+) as Record<string, CommandHandlerBase>;
 
 export type RoutedCommand = {
-  handler: CommandHandler;
+  handler: CommandHandlerBase["handle"];
   context: CommandContext;
 };
 
@@ -36,9 +40,13 @@ function parseExplicitCommand(normalizedText: string): {
   return { command, args };
 }
 
-function resolveKeywordCommand(normalizedText: string): string | null {
-  const matched = HELP_KEYWORDS.some((keyword) => normalizedText.includes(keyword));
-  if (matched) return "help";
+function resolveKeywordCommandName(normalizedText: string): string | null {
+  for (const cmd of registeredCommands) {
+    const hit = cmd.keywords.some((kw) =>
+      normalizedText.includes(kw.toLowerCase())
+    );
+    if (hit) return cmd.name;
+  }
   return null;
 }
 
@@ -47,10 +55,10 @@ export function routeCommand(rawText: string): RoutedCommand | null {
   const explicit = parseExplicitCommand(normalizedText);
 
   if (explicit) {
-    const handler = commandHandlers[explicit.command];
-    if (!handler) return null;
+    const cmd = commandByName[explicit.command];
+    if (!cmd) return null;
     return {
-      handler,
+      handler: cmd.handle.bind(cmd),
       context: {
         rawText,
         normalizedText,
@@ -59,11 +67,14 @@ export function routeCommand(rawText: string): RoutedCommand | null {
     };
   }
 
-  const keywordCommand = resolveKeywordCommand(normalizedText);
-  if (!keywordCommand) return null;
+  const keywordCommandName = resolveKeywordCommandName(normalizedText);
+  if (!keywordCommandName) return null;
+
+  const cmd = commandByName[keywordCommandName];
+  if (!cmd) return null;
 
   return {
-    handler: commandHandlers[keywordCommand],
+    handler: cmd.handle.bind(cmd),
     context: {
       rawText,
       normalizedText,
