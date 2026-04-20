@@ -177,6 +177,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
       }
     }
   }
+}
 
 /** 若訊息 @ 到本機器人，回傳剝掉該段後的文字；否則回傳 null。 */
 function stripBotMention(message: webhook.TextMessageContent): string | null {
