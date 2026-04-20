@@ -81,7 +81,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
                 "contents": [
                   {
                     "type": "icon",
-                    "url": WINDOW_LOCATION_ORIGIN + "/icons/meeting.png",
+                    "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar_add_on.png",
                     "size": "35px",
                     "scaling": true
                   }
@@ -155,7 +155,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
                 "contents": [
                   {
                     "type": "icon",
-                    "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar.png",
+                    "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar_month.png",
                     "size": "35px",
                     "scaling": true
                   }
