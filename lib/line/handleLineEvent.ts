@@ -55,50 +55,128 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
     type: "flex",
     altText: COMMAND_NOT_FOUND,
     contents: {
-      type: "bubble",
-      body: {
-        type: "box",
-        layout: "horizontal",
-        contents: [
+      "type": "bubble",
+      "size": "kilo",
+      "body": {
+        "type": "box",
+        "layout": "horizontal",
+        "spacing": "10px",
+        "backgroundColor": "#2C3439",
+        "paddingAll": "15px",
+        "alignItems": "center",
+        "contents": [
           {
-            type: "text",
-            text: "Create Meeting",
-            wrap: true,
-            action: {
-              type: "uri",
-              label: "action",
-              uri: buildLiffUrl("/liff/meeting") ?? "",
-            },
-            align: "start",
+            "type": "box",
+            "layout": "vertical",
+            "cornerRadius": "12px",
+            "alignItems": "center",
+            "flex": 1,
+            "contents": [
+              {
+                "type": "box",
+                "layout": "baseline",
+                "justifyContent": "center",
+                "contents": [
+                  {
+                    "type": "icon",
+                    "url": "https://api.iconify.design/material-symbols/calendar-add-on.svg?color=%23FFFFFF",
+                    "size": "35px"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "預約會議",
+                "size": "sm",
+                "weight": "bold",
+                "color": "#8CE1E6",
+                "margin": "8px",
+                "align": "center",
+                "wrap": true
+              }
+            ],
+            "action": {
+              "type": "uri",
+              "label": "action",
+              "uri": buildLiffUrl("/liff/meeting") ?? ""
+            }
           },
           {
-            type: "text",
-            text: "Dashboard",
-            wrap: true,
-            action: {
-              type: "uri",
-              label: "action",
-              uri: buildLiffUrl("/liff/dashboard") ?? "",
-            },
-            align: "center",
+            "type": "box",
+            "layout": "vertical",
+            "cornerRadius": "12px",
+            "alignItems": "center",
+            "flex": 1,
+            "contents": [
+              {
+                "type": "box",
+                "layout": "baseline",
+                "justifyContent": "center",
+                "contents": [
+                  {
+                    "type": "icon",
+                    "url": "https://api.iconify.design/material-symbols/dashboard-outline.svg?color=%23FFFFFF",
+                    "size": "35px"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "儀表板",
+                "size": "sm",
+                "weight": "bold",
+                "color": "#8CE1E6",
+                "margin": "8px",
+                "align": "center",
+                "wrap": true
+              }
+            ],
+            "action": {
+              "type": "uri",
+              "label": "action",
+              "uri": buildLiffUrl("/liff/dashboard") ?? ""
+            }
           },
           {
-            type: "text",
-            text: "Calender",
-            wrap: true,
-            action: {
-              type: "uri",
-              label: "action",
-              uri: buildLiffUrl("/liff/dashboard") ?? "",
-            },
-            align: "end",
-          },
-        ],
-        alignItems: "center",
-      },
-    },
-  };
-}
+            "type": "box",
+            "layout": "vertical",
+            "cornerRadius": "12px",
+            "alignItems": "center",
+            "flex": 1,
+            "contents": [
+              {
+                "type": "box",
+                "layout": "baseline",
+                "justifyContent": "center",
+                "contents": [
+                  {
+                    "type": "icon",
+                    "url": "https://api.iconify.design/material-symbols/calendar-month-outline.svg?color=%23FFFFFF",
+                    "size": "35px"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "查看日曆",
+                "size": "sm",
+                "weight": "bold",
+                "color": "#8CE1E6",
+                "margin": "8px",
+                "align": "center",
+                "wrap": true
+              }
+            ],
+            "action": {
+              "type": "uri",
+              "label": "action",
+              "uri": buildLiffUrl("/liff/calendar") ?? ""
+            }
+          }
+        ]
+      }
+    }
+  }
 
 /** 若訊息 @ 到本機器人，回傳剝掉該段後的文字；否則回傳 null。 */
 function stripBotMention(message: webhook.TextMessageContent): string | null {
