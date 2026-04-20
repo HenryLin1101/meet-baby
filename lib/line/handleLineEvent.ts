@@ -27,6 +27,7 @@ const CANCEL_QUICK_REPLY: QuickReplyOption = { label: "取消", text: "取消" }
 
 /** 在群組中沒有 @ 也能喚醒機器人的別名。 */
 const BOT_ALIASES = ["米特寶寶", "米特", "米寶", "肥特寶寶", "肥寶"] as const;
+const WINDOW_LOCATION_ORIGIN = "https://meet-baby.vercel.app";
 
 function createMessagingClient(channelAccessToken: string) {
   return new messagingApi.MessagingApiClient({ channelAccessToken });
@@ -79,7 +80,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
                 "contents": [
                   {
                     "type": "icon",
-                    "url": window.location.origin + "/meeting.png",
+                    "url": WINDOW_LOCATION_ORIGIN + "/meeting.png",
                     "size": "35px",
                     "scaling": true
                   }
@@ -116,7 +117,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
                 "contents": [
                   {
                     "type": "icon",
-                    "url": window.location.origin + "/dashboard.png",
+                    "url": WINDOW_LOCATION_ORIGIN + "/dashboard.png",
                     "size": "35px",
                     "scaling": true
                   }
@@ -153,7 +154,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
                 "contents": [
                   {
                     "type": "icon",
-                    "url": window.location.origin + "/calendar.png",
+                    "url": WINDOW_LOCATION_ORIGIN + "/calendar.png",
                     "size": "35px",
                     "scaling": true
                   }
