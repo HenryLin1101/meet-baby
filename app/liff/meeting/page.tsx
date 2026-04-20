@@ -27,7 +27,7 @@ export default function MeetingLiffPage() {
       try {
         await liff.init({
           liffId: LIFF_ID,
-          withLoginOnExternalBrowser: true,
+          withLoginOnExternalBrowser: false,
         });
         if (!cancelled) setStatus("ready");
       } catch (err) {

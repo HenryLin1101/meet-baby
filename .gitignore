@@ -13,3 +13,9 @@ out/
 # misc
 .DS_Store
 *.log
+
+# Ignore local SSL certificates
+*.pem
+.cert/
+localhost.pem
+localhost-key.pem
