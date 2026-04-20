@@ -79,8 +79,9 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
                 "contents": [
                   {
                     "type": "icon",
-                    "url": "https://api.iconify.design/material-symbols/calendar-add-on.svg?color=%23FFFFFF",
-                    "size": "35px"
+                    "url": window.location.origin + "/meeting.png",
+                    "size": "35px",
+                    "scaling": true
                   }
                 ]
               },
@@ -115,8 +116,9 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
                 "contents": [
                   {
                     "type": "icon",
-                    "url": "https://api.iconify.design/material-symbols/dashboard-outline.svg?color=%23FFFFFF",
-                    "size": "35px"
+                    "url": window.location.origin + "/dashboard.png",
+                    "size": "35px",
+                    "scaling": true
                   }
                 ]
               },
@@ -151,8 +153,9 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
                 "contents": [
                   {
                     "type": "icon",
-                    "url": "https://api.iconify.design/material-symbols/calendar-month-outline.svg?color=%23FFFFFF",
-                    "size": "35px"
+                    "url": window.location.origin + "/calendar.png",
+                    "size": "35px",
+                    "scaling": true
                   }
                 ]
               },
