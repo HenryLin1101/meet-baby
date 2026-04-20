@@ -58,7 +58,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
     altText: COMMAND_NOT_FOUND,
     contents: {
       "type": "bubble",
-      "size": "kilo",
+      "size": "giga",
       "body": {
         "type": "box",
         "layout": "horizontal",
@@ -78,19 +78,19 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
                 "type": "box",
                 "layout": "baseline",
                 "justifyContent": "center",
+                "offsetTop": "10px",
                 "contents": [
                   {
                     "type": "icon",
                     "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar_add_on.png",
-                    "size": "35px",
-                    "scaling": true
+                    "size": "50px"
                   }
                 ]
               },
               {
                 "type": "text",
                 "text": "預約會議",
-                "size": "sm",
+                "size": "md",
                 "weight": "bold",
                 "color": "#8CE1E6",
                 "margin": "8px",
@@ -115,19 +115,19 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
                 "type": "box",
                 "layout": "baseline",
                 "justifyContent": "center",
+                "offsetTop": "10px",
                 "contents": [
                   {
                     "type": "icon",
                     "url": WINDOW_LOCATION_ORIGIN + "/icons/dashboard.png",
-                    "size": "35px",
-                    "scaling": true
+                    "size": "50px"
                   }
                 ]
               },
               {
                 "type": "text",
                 "text": "儀表板",
-                "size": "sm",
+                "size": "md",
                 "weight": "bold",
                 "color": "#8CE1E6",
                 "margin": "8px",
@@ -152,19 +152,19 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
                 "type": "box",
                 "layout": "baseline",
                 "justifyContent": "center",
+                "offsetTop": "10px",
                 "contents": [
                   {
                     "type": "icon",
                     "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar_month.png",
-                    "size": "35px",
-                    "scaling": true
+                    "size": "50px"
                   }
                 ]
               },
               {
                 "type": "text",
                 "text": "查看日曆",
-                "size": "sm",
+                "size": "md",
                 "weight": "bold",
                 "color": "#8CE1E6",
                 "margin": "8px",
