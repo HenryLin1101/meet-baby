@@ -77,7 +77,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
             "contents": [
               {
                 "type": "image",
-                "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar_add_on.png?v=1",
+                "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar_add.png?v=1",
                 "size": "50px",
                 "aspectMode": "fit",
                 "aspectRatio": "1:1"
