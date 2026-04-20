@@ -1,9 +1,14 @@
 :root {
-  --bg: #0f1419;
-  --surface: #1a2332;
-  --text: #e7ecf3;
-  --muted: #8b9cb3;
-  --accent: #06c755;
+  --bg: #edf2f8;
+  --surface: #1f2837;
+  --surface-soft: #2a3648;
+  --text: #f3f8ff;
+  --muted: #97a6bc;
+  --accent: #9eeeff;
+  --accent-strong: #74d8f2;
+  --accent-glow: rgba(158, 238, 255, 0.32);
+  --border-soft: rgba(255, 255, 255, 0.18);
+  --shadow-soft: 0 24px 60px rgba(58, 72, 95, 0.2);
 }
 
 *,
@@ -27,8 +32,10 @@ body {
     Roboto,
     "Noto Sans TC",
     sans-serif;
-  background: radial-gradient(1200px 600px at 50% -20%, #1e3a2f 0%, var(--bg) 55%);
-  color: var(--text);
+  background:
+    radial-gradient(720px 360px at 50% 0%, rgba(158, 238, 255, 0.2) 0%, rgba(158, 238, 255, 0) 60%),
+    linear-gradient(180deg, #f6f8fc 0%, #e4eaf3 42%, #d7deea 100%);
+  color: #233043;
   line-height: 1.6;
 }
 
@@ -47,5 +54,5 @@ code {
   background: var(--surface);
   padding: 0.15em 0.45em;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-soft);
 }

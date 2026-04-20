@@ -11,6 +11,7 @@ export default function MeetingLiffPage() {
   const [errorMsg, setErrorMsg] = useState<string>(
     LIFF_ID ? "" : MISSING_LIFF_ENV_MSG
   );
+  const { isCompact } = useResponsiveFlags();
 
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -64,12 +65,46 @@ export default function MeetingLiffPage() {
   const disabled = status !== "ready";
 
   return (
-    <main style={mainStyle}>
-      <div style={cardStyle}>
-        <h1 style={titleStyle}>預約會議</h1>
-        <p style={subtitleStyle}>
-          填好下方資訊送出，會直接在聊天室留下會議摘要。
-        </p>
+    <main
+      style={{
+        ...mainStyle,
+        padding: isCompact ? "1rem 0.85rem 1.5rem" : "2rem 1rem",
+      }}
+    >
+      <div
+        style={{
+          ...cardStyle,
+          maxWidth: isCompact ? "100%" : "34rem",
+          padding: isCompact ? "1.2rem" : "1.75rem",
+        }}
+      >
+        <div
+          style={{
+            ...heroStyle,
+            flexDirection: isCompact ? "column" : "row",
+            alignItems: isCompact ? "flex-start" : "center",
+          }}
+        >
+          <div style={heroOrbStyle} />
+          <div style={{ flex: 1 }}>
+            <div style={badgeStyle}>MITE BABY</div>
+            <h1 style={titleStyle}>預約會議</h1>
+            <p style={subtitleStyle}>
+              填好下方資訊送出，會直接在聊天室留下會議摘要。
+            </p>
+          </div>
+          <div style={statusStyle}>
+            {status === "ready"
+              ? "LIFF 已就緒"
+              : status === "loading"
+                ? "LIFF 載入中"
+                : status === "submitting"
+                  ? "送出中"
+                  : status === "done"
+                    ? "已送出"
+                    : "初始化失敗"}
+          </div>
+        </div>
 
         {status === "error" && <div style={errorBoxStyle}>{errorMsg}</div>}
 
@@ -85,7 +120,7 @@ export default function MeetingLiffPage() {
             />
           </Field>
 
-          <Row>
+          <Row isCompact={isCompact}>
             <Field label="日期" required>
               <input
                 style={inputStyle}
@@ -132,6 +167,7 @@ export default function MeetingLiffPage() {
             type="submit"
             style={{
               ...buttonStyle,
+              width: "100%",
               opacity: disabled ? 0.6 : 1,
               cursor: disabled ? "not-allowed" : "pointer",
             }}
@@ -188,8 +224,39 @@ function Field({
   );
 }
 
-function Row({ children }: { children: ReactNode }) {
-  return <div style={rowStyle}>{children}</div>;
+function Row({
+  children,
+  isCompact,
+}: {
+  children: ReactNode;
+  isCompact?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        ...rowStyle,
+        flexDirection: isCompact ? "column" : "row",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function useResponsiveFlags() {
+  const [isCompact, setIsCompact] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const media = window.matchMedia("(max-width: 640px)");
+    const update = () => setIsCompact(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return { isCompact };
 }
 
 const mainStyle: CSSProperties = {
@@ -200,24 +267,67 @@ const mainStyle: CSSProperties = {
 };
 
 const cardStyle: CSSProperties = {
-  maxWidth: "32rem",
+  maxWidth: "34rem",
   width: "100%",
-  background: "rgba(26, 35, 50, 0.85)",
-  border: "1px solid rgba(255, 255, 255, 0.08)",
-  borderRadius: "16px",
+  background:
+    "linear-gradient(180deg, rgba(37, 48, 66, 0.94) 0%, rgba(23, 31, 43, 0.92) 100%)",
+  border: "1px solid rgba(255, 255, 255, 0.18)",
+  borderRadius: "24px",
   padding: "1.75rem",
-  backdropFilter: "blur(8px)",
+  backdropFilter: "blur(14px)",
+  boxShadow: "0 24px 60px rgba(58, 72, 95, 0.22)",
+};
+
+const heroStyle: CSSProperties = {
+  display: "flex",
+  gap: "1rem",
+  marginBottom: "1.25rem",
+};
+
+const heroOrbStyle: CSSProperties = {
+  width: "4rem",
+  height: "4rem",
+  borderRadius: "1.25rem",
+  background:
+    "radial-gradient(circle at 35% 35%, rgba(158, 238, 255, 0.95) 0%, rgba(116, 216, 242, 0.92) 42%, rgba(28, 40, 56, 0.96) 100%)",
+  boxShadow: "0 0 0 1px rgba(255,255,255,0.18), 0 12px 28px rgba(158, 238, 255, 0.24)",
+  flexShrink: 0,
+};
+
+const badgeStyle: CSSProperties = {
+  display: "inline-block",
+  marginBottom: "0.55rem",
+  padding: "0.28rem 0.7rem",
+  borderRadius: "999px",
+  fontSize: "0.72rem",
+  letterSpacing: "0.08em",
+  fontWeight: 700,
+  color: "#d8f8ff",
+  background: "rgba(158, 238, 255, 0.12)",
+  border: "1px solid rgba(158, 238, 255, 0.2)",
 };
 
 const titleStyle: CSSProperties = {
-  margin: "0 0 0.5rem",
-  fontSize: "1.5rem",
+  margin: "0 0 0.35rem",
+  fontSize: "1.65rem",
+  color: "var(--text)",
 };
 
 const subtitleStyle: CSSProperties = {
-  margin: "0 0 1.5rem",
+  margin: 0,
   color: "var(--muted)",
   fontSize: "0.9rem",
+};
+
+const statusStyle: CSSProperties = {
+  alignSelf: "flex-start",
+  padding: "0.38rem 0.75rem",
+  borderRadius: "999px",
+  fontSize: "0.78rem",
+  whiteSpace: "nowrap",
+  color: "#d8f8ff",
+  background: "rgba(255, 255, 255, 0.06)",
+  border: "1px solid rgba(255,255,255,0.12)",
 };
 
 const formStyle: CSSProperties = {
@@ -249,25 +359,28 @@ const rowStyle: CSSProperties = {
 };
 
 const inputStyle: CSSProperties = {
-  background: "rgba(15, 20, 25, 0.8)",
-  border: "1px solid rgba(255, 255, 255, 0.12)",
-  borderRadius: "10px",
+  background: "rgba(236, 242, 248, 0.08)",
+  border: "1px solid rgba(255, 255, 255, 0.16)",
+  borderRadius: "14px",
   color: "var(--text)",
-  padding: "0.625rem 0.75rem",
+  padding: "0.78rem 0.9rem",
   fontSize: "1rem",
   fontFamily: "inherit",
   width: "100%",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
 };
 
 const buttonStyle: CSSProperties = {
   marginTop: "0.5rem",
-  background: "var(--accent)",
-  color: "#0b1b11",
+  background:
+    "linear-gradient(135deg, rgba(158, 238, 255, 0.98) 0%, rgba(116, 216, 242, 0.96) 100%)",
+  color: "#162331",
   border: 0,
-  borderRadius: "10px",
-  padding: "0.75rem 1rem",
+  borderRadius: "14px",
+  padding: "0.88rem 1rem",
   fontSize: "1rem",
-  fontWeight: 600,
+  fontWeight: 700,
+  boxShadow: "0 14px 24px rgba(116, 216, 242, 0.22)",
 };
 
 const errorBoxStyle: CSSProperties = {

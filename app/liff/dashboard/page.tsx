@@ -33,6 +33,7 @@ export default function DashboardLiffPage() {
   const [errorMsg, setErrorMsg] = useState<string>(
     LIFF_ID ? "" : MISSING_LIFF_ENV_MSG
   );
+  const { isTablet, isCompact } = useResponsiveFlags();
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const meetings = useMemo(() => buildFakeMeetings(), []);
   const [selectedDateKey, setSelectedDateKey] = useState(() => meetings[0]?.date ?? formatDateKey(new Date()));
@@ -69,11 +70,30 @@ export default function DashboardLiffPage() {
     .slice(0, 5);
 
   return (
-    <main style={mainStyle}>
-      <div style={containerStyle}>
+    <main
+      style={{
+        ...mainStyle,
+        padding: isCompact ? "1rem 0.75rem 1.5rem" : "1.5rem 1rem 2rem",
+      }}
+    >
+      <div
+        style={{
+          ...containerStyle,
+          gridTemplateColumns: isTablet
+            ? "minmax(0, 1fr)"
+            : "minmax(0, 2fr) minmax(18rem, 1fr)",
+        }}
+      >
         <section style={panelStyle}>
-          <div style={headerRowStyle}>
+          <div
+            style={{
+              ...headerRowStyle,
+              flexDirection: isCompact ? "column" : "row",
+              alignItems: isCompact ? "flex-start" : "flex-start",
+            }}
+          >
             <div>
+              <div style={heroBadgeStyle}>MITE BABY DASHBOARD</div>
               <h1 style={titleStyle}>Meeting Dashboard</h1>
               <p style={subtitleStyle}>假資料預覽後續會議時程。</p>
             </div>
@@ -82,7 +102,12 @@ export default function DashboardLiffPage() {
 
           {status === "error" && <div style={errorBoxStyle}>{errorMsg}</div>}
 
-          <div style={monthBarStyle}>
+          <div
+            style={{
+              ...monthBarStyle,
+              flexWrap: isCompact ? "wrap" : "nowrap",
+            }}
+          >
             <button
               type="button"
               style={ghostButtonStyle}
@@ -100,37 +125,48 @@ export default function DashboardLiffPage() {
             </button>
           </div>
 
-          <div style={calendarStyle}>
-            {WEEKDAY_LABELS.map((label) => (
-              <div key={label} style={weekdayStyle}>
-                {label}
-              </div>
-            ))}
-            {calendarCells.map((cell) => {
-              const dayKey = formatDateKey(cell.date);
-              const dayMeetings = meetingsByDate[dayKey] ?? [];
-              const isSelected = selectedDateKey === dayKey;
-              return (
-                <button
-                  key={cell.key}
-                  type="button"
-                  style={{
-                    ...dayCellStyle,
-                    opacity: cell.inMonth ? 1 : 0.45,
-                    borderColor: isSelected ? "var(--accent)" : "rgba(255,255,255,0.08)",
-                    background: isSelected
-                      ? "rgba(6, 199, 85, 0.12)"
-                      : "rgba(15, 20, 25, 0.55)",
-                  }}
-                  onClick={() => setSelectedDateKey(dayKey)}
-                >
-                  <span style={dayNumberStyle}>{cell.date.getDate()}</span>
-                  <span style={meetingCountStyle}>
-                    {dayMeetings.length > 0 ? `${dayMeetings.length} meeting` : ""}
-                  </span>
-                </button>
-              );
-            })}
+          <div style={calendarScrollStyle}>
+            <div
+              style={{
+                ...calendarStyle,
+                minWidth: isCompact ? "38rem" : "100%",
+              }}
+            >
+              {WEEKDAY_LABELS.map((label) => (
+                <div key={label} style={weekdayStyle}>
+                  {label}
+                </div>
+              ))}
+              {calendarCells.map((cell) => {
+                const dayKey = formatDateKey(cell.date);
+                const dayMeetings = meetingsByDate[dayKey] ?? [];
+                const isSelected = selectedDateKey === dayKey;
+                return (
+                  <button
+                    key={cell.key}
+                    type="button"
+                    style={{
+                      ...dayCellStyle,
+                      minHeight: isCompact ? "4.6rem" : "5.25rem",
+                      opacity: cell.inMonth ? 1 : 0.45,
+                      borderColor: isSelected ? "var(--accent-strong)" : "rgba(255,255,255,0.1)",
+                      background: isSelected
+                        ? "rgba(158, 238, 255, 0.14)"
+                        : "rgba(236, 242, 248, 0.06)",
+                      boxShadow: isSelected
+                        ? "0 10px 18px rgba(116, 216, 242, 0.18)"
+                        : "none",
+                    }}
+                    onClick={() => setSelectedDateKey(dayKey)}
+                  >
+                    <span style={dayNumberStyle}>{cell.date.getDate()}</span>
+                    <span style={meetingCountStyle}>
+                      {dayMeetings.length > 0 ? `${dayMeetings.length} meeting` : ""}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </section>
 
@@ -187,13 +223,39 @@ function StatusBadge({ status }: { status: Status }) {
         color: status === "error" ? "#ffb4b4" : "var(--text)",
         borderColor:
           status === "ready"
-            ? "rgba(6, 199, 85, 0.5)"
+            ? "rgba(158, 238, 255, 0.4)"
             : "rgba(255, 255, 255, 0.12)",
       }}
     >
       {label}
     </span>
   );
+}
+
+function useResponsiveFlags() {
+  const [state, setState] = useState({ isTablet: false, isCompact: false });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const tabletQuery = window.matchMedia("(max-width: 980px)");
+    const compactQuery = window.matchMedia("(max-width: 640px)");
+    const update = () =>
+      setState({
+        isTablet: tabletQuery.matches,
+        isCompact: compactQuery.matches,
+      });
+
+    update();
+    tabletQuery.addEventListener("change", update);
+    compactQuery.addEventListener("change", update);
+    return () => {
+      tabletQuery.removeEventListener("change", update);
+      compactQuery.removeEventListener("change", update);
+    };
+  }, []);
+
+  return state;
 }
 
 function buildFakeMeetings(): MeetingItem[] {
@@ -296,11 +358,13 @@ const sideColumnStyle: CSSProperties = {
 };
 
 const panelStyle: CSSProperties = {
-  background: "rgba(26, 35, 50, 0.85)",
-  border: "1px solid rgba(255, 255, 255, 0.08)",
-  borderRadius: "16px",
+  background:
+    "linear-gradient(180deg, rgba(37, 48, 66, 0.94) 0%, rgba(23, 31, 43, 0.92) 100%)",
+  border: "1px solid rgba(255, 255, 255, 0.18)",
+  borderRadius: "24px",
   padding: "1.25rem",
-  backdropFilter: "blur(8px)",
+  backdropFilter: "blur(14px)",
+  boxShadow: "0 24px 60px rgba(58, 72, 95, 0.22)",
 };
 
 const headerRowStyle: CSSProperties = {
@@ -314,6 +378,7 @@ const headerRowStyle: CSSProperties = {
 const titleStyle: CSSProperties = {
   margin: 0,
   fontSize: "1.5rem",
+  color: "var(--text)",
 };
 
 const subtitleStyle: CSSProperties = {
@@ -322,12 +387,26 @@ const subtitleStyle: CSSProperties = {
   fontSize: "0.92rem",
 };
 
+const heroBadgeStyle: CSSProperties = {
+  display: "inline-block",
+  marginBottom: "0.6rem",
+  padding: "0.28rem 0.72rem",
+  borderRadius: "999px",
+  fontSize: "0.72rem",
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  color: "#d8f8ff",
+  background: "rgba(158, 238, 255, 0.12)",
+  border: "1px solid rgba(158, 238, 255, 0.2)",
+};
+
 const badgeStyle: CSSProperties = {
-  border: "1px solid rgba(255, 255, 255, 0.12)",
+  border: "1px solid rgba(255, 255, 255, 0.16)",
   borderRadius: "999px",
   padding: "0.35rem 0.7rem",
   fontSize: "0.82rem",
   whiteSpace: "nowrap",
+  background: "rgba(236, 242, 248, 0.06)",
 };
 
 const errorBoxStyle: CSSProperties = {
@@ -350,15 +429,21 @@ const monthBarStyle: CSSProperties = {
 
 const monthLabelStyle: CSSProperties = {
   fontSize: "1rem",
+  color: "var(--text)",
 };
 
 const ghostButtonStyle: CSSProperties = {
-  background: "rgba(15, 20, 25, 0.8)",
+  background: "rgba(236, 242, 248, 0.08)",
   color: "var(--text)",
-  border: "1px solid rgba(255,255,255,0.12)",
-  borderRadius: "10px",
+  border: "1px solid rgba(255,255,255,0.14)",
+  borderRadius: "14px",
   padding: "0.55rem 0.8rem",
   cursor: "pointer",
+};
+
+const calendarScrollStyle: CSSProperties = {
+  overflowX: "auto",
+  paddingBottom: "0.25rem",
 };
 
 const calendarStyle: CSSProperties = {
@@ -376,8 +461,8 @@ const weekdayStyle: CSSProperties = {
 
 const dayCellStyle: CSSProperties = {
   minHeight: "5.25rem",
-  borderRadius: "12px",
-  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: "16px",
+  border: "1px solid rgba(255,255,255,0.1)",
   padding: "0.6rem",
   color: "var(--text)",
   display: "flex",
@@ -410,9 +495,9 @@ const stackStyle: CSSProperties = {
 };
 
 const meetingCardStyle: CSSProperties = {
-  borderRadius: "12px",
-  border: "1px solid rgba(255,255,255,0.08)",
-  background: "rgba(15, 20, 25, 0.6)",
+  borderRadius: "16px",
+  border: "1px solid rgba(255,255,255,0.1)",
+  background: "rgba(236, 242, 248, 0.06)",
   padding: "0.85rem 0.9rem",
 };
 

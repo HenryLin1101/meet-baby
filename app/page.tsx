@@ -71,16 +71,20 @@ const mainStyle: CSSProperties = {
 const cardStyle: CSSProperties = {
   maxWidth: "30rem",
   width: "100%",
-  background: "rgba(26, 35, 50, 0.85)",
-  border: "1px solid rgba(255, 255, 255, 0.08)",
-  borderRadius: "16px",
+  background:
+    "linear-gradient(180deg, rgba(37, 48, 66, 0.94) 0%, rgba(23, 31, 43, 0.92) 100%)",
+  border: "1px solid rgba(255, 255, 255, 0.18)",
+  borderRadius: "24px",
   padding: "2rem",
-  backdropFilter: "blur(8px)",
+  backdropFilter: "blur(14px)",
+  color: "var(--text)",
+  boxShadow: "0 24px 60px rgba(58, 72, 95, 0.22)",
 };
 
 const titleStyle: CSSProperties = {
   margin: "0 0 0.5rem",
   fontSize: "1.75rem",
+  color: "var(--text)",
 };
 
 const subtitleStyle: CSSProperties = {
