@@ -19,14 +19,21 @@ const WELCOME_ON_FOLLOW = "歡迎加入好友！有問題隨時傳訊息給我�
 const WELCOME_ON_JOIN = "大家好！我已加入此聊天室，請多指教。";
 const COMMAND_NOT_FOUND = "我目前看不懂這個指令，請輸入 /help。";
 
+
+
 const CANCEL_KEYWORDS = new Set(["cancel", "取消"]);
 const CANCEL_QUICK_REPLY: QuickReplyOption = { label: "取消", text: "取消" };
 
 /** 在群組中沒有 @ 也能喚醒機器人的別名。 */
-const BOT_ALIASES = ["米特寶寶", "米特", "米寶"] as const;
+const BOT_ALIASES = ["米特寶寶", "米特", "米寶", "肥特寶寶"] as const;
 
 function createMessagingClient(channelAccessToken: string) {
   return new messagingApi.MessagingApiClient({ channelAccessToken });
+}
+
+function buildLiffUrl(path: string): string | null {
+  const id = process.env.NEXT_PUBLIC_LIFF_ID?.trim();
+  return id ? `https://liff.line.me/${id}/${path}` : null;
 }
 
 function textMessage(text: string, quickReplies?: QuickReplyOption[]) {
@@ -43,6 +50,56 @@ function textMessage(text: string, quickReplies?: QuickReplyOption[]) {
           ? { type: "uri" as const, label: qr.label, uri: qr.uri }
           : { type: "message" as const, label: qr.label, text: qr.text },
       })),
+    },
+  };
+}
+
+function buildFallbackFlexMessage(): messagingApi.FlexMessage {
+  return {
+    type: "flex",
+    altText: COMMAND_NOT_FOUND,
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "horizontal",
+        contents: [
+          {
+            type: "text",
+            text: "Create Meeting",
+            wrap: true,
+            action: {
+              type: "uri",
+              label: "action",
+              uri: buildLiffUrl("liff/meeting") ?? "",
+            },
+            align: "start",
+          },
+          {
+            type: "text",
+            text: "Dashboard",
+            wrap: true,
+            action: {
+              type: "uri",
+              label: "action",
+              uri: buildLiffUrl("liff/dashboard") ?? "",
+            },
+            align: "center",
+          },
+          {
+            type: "text",
+            text: "Calender",
+            wrap: true,
+            action: {
+              type: "uri",
+              label: "action",
+              uri: buildLiffUrl("liff/calender") ?? "",
+            },
+            align: "end",
+          },
+        ],
+        alignItems: "center",
+      },
     },
   };
 }
@@ -142,6 +199,17 @@ async function reply(
   });
 }
 
+async function replyFlex(
+  client: messagingApi.MessagingApiClient,
+  replyToken: string,
+  message: messagingApi.FlexMessage
+) {
+  await client.replyMessage({
+    replyToken,
+    messages: [message],
+  });
+}
+
 function injectCancelQuickReply(
   quickReplies: QuickReplyOption[] | undefined
 ): QuickReplyOption[] {
@@ -228,7 +296,7 @@ async function handleTextMessage(
 
   const routed = routeCommand(cleanedText);
   if (!routed) {
-    await reply(client, token, COMMAND_NOT_FOUND);
+    await replyFlex(client, token, buildFallbackFlexMessage());
     return;
   }
 

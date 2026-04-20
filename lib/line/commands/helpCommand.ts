@@ -3,6 +3,7 @@ import {
   type ConversationUpdate,
 } from "@/lib/modules/types";
 
+
 const HELP_MESSAGE = [
   "可用指令：",
   "/help 或 !help：顯示這份說明",
