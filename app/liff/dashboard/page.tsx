@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
 
 type Status = "loading" | "ready" | "error";
 
@@ -25,14 +26,12 @@ type CalendarCell = {
   inMonth: boolean;
 };
 
-const LIFF_ID = process.env.NEXT_PUBLIC_LIFF_ID;
-const MISSING_ENV_MSG = "尚未設定 NEXT_PUBLIC_LIFF_ID，請於環境變數加入 LIFF ID。";
 const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as const;
 
 export default function DashboardLiffPage() {
   const [status, setStatus] = useState<Status>(LIFF_ID ? "loading" : "error");
   const [errorMsg, setErrorMsg] = useState<string>(
-    LIFF_ID ? "" : MISSING_ENV_MSG
+    LIFF_ID ? "" : MISSING_LIFF_ENV_MSG
   );
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const meetings = useMemo(() => buildFakeMeetings(), []);
@@ -45,7 +44,7 @@ export default function DashboardLiffPage() {
       try {
         await liff.init({
           liffId: LIFF_ID,
-          withLoginOnExternalBrowser: false,
+          withLoginOnExternalBrowser: true,
         });
         if (!cancelled) setStatus("ready");
       } catch (err) {

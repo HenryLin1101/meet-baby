@@ -11,6 +11,7 @@ import type {
   ConversationUpdate,
   QuickReplyOption,
 } from "@/lib/modules/types";
+import { buildLiffUrl } from "@/lib/liff/utils";
 
 type LineEvent = webhook.Event;
 type LineMessageEvent = Extract<LineEvent, { type: "message" }>;
@@ -29,11 +30,6 @@ const BOT_ALIASES = ["米特寶寶", "米特", "米寶", "肥特寶寶"] as cons
 
 function createMessagingClient(channelAccessToken: string) {
   return new messagingApi.MessagingApiClient({ channelAccessToken });
-}
-
-function buildLiffUrl(path: string): string | null {
-  const id = process.env.NEXT_PUBLIC_LIFF_ID?.trim();
-  return id ? `https://liff.line.me/${id}/${path}` : null;
 }
 
 function textMessage(text: string, quickReplies?: QuickReplyOption[]) {
@@ -71,7 +67,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
             action: {
               type: "uri",
               label: "action",
-              uri: buildLiffUrl("liff/meeting") ?? "",
+              uri: buildLiffUrl("/liff/meeting") ?? "",
             },
             align: "start",
           },
@@ -82,7 +78,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
             action: {
               type: "uri",
               label: "action",
-              uri: buildLiffUrl("liff/dashboard") ?? "",
+              uri: buildLiffUrl("/liff/dashboard") ?? "",
             },
             align: "center",
           },
@@ -93,7 +89,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
             action: {
               type: "uri",
               label: "action",
-              uri: buildLiffUrl("liff/calender") ?? "",
+              uri: buildLiffUrl("/liff/dashboard") ?? "",
             },
             align: "end",
           },

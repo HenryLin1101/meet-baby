@@ -2,26 +2,22 @@ import {
   CommandHandlerBase,
   type ConversationUpdate,
 } from "@/lib/modules/types";
-
-function buildLiffUrl(): string | null {
-  const id = process.env.NEXT_PUBLIC_LIFF_ID?.trim();
-  return id ? `https://liff.line.me/${id}` : null;
-}
+import { buildLiffUrl, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
 
 export class LiffCommand extends CommandHandlerBase {
   readonly name = "liff";
   readonly keywords = ["liff", "表單", "form"] as const;
 
   start(): ConversationUpdate {
-    const url = buildLiffUrl();
+    const url = buildLiffUrl("/liff/dashboard");
     if (!url) {
       return {
-        reply: "尚未設定 LIFF，請先在伺服器環境變數加入 NEXT_PUBLIC_LIFF_ID。",
+        reply: MISSING_LIFF_ENV_MSG,
       };
     }
     return {
-      reply: `預約會議表單：\n${url}`,
-      quickReplies: [{ label: "開啟表單", uri: url }],
+      reply: `Dashboard：\n${url}`,
+      quickReplies: [{ label: "開啟 Dashboard", uri: url }],
     };
   }
 }

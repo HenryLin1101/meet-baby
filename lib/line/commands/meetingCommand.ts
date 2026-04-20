@@ -9,6 +9,7 @@ import {
   type ConversationUpdate,
   type QuickReplyOption,
 } from "@/lib/modules/types";
+import { buildLiffUrl } from "@/lib/liff/utils";
 
 const STEP_AWAIT_TITLE = "awaitingTitle";
 const STEP_AWAIT_TIME = "awaitingTime";
@@ -20,18 +21,13 @@ const NO_ANSWERS = new Set(["否", "n", "no", "取消確認"]);
 /** 文字模式子指令：點「改用聊天填寫」時會送出這段文字，要有別名讓 bot 被喚醒。 */
 const TEXT_MODE_PAYLOAD = "米特寶寶 /meeting text";
 
-function buildLiffUrl(): string | null {
-  const id = process.env.NEXT_PUBLIC_LIFF_ID?.trim();
-  return id ? `https://liff.line.me/${id}` : null;
-}
-
 export class MeetingCommand extends CommandHandlerBase {
   readonly name = "meeting";
   readonly keywords = ["meeting", "會議", "預約"] as const;
 
   start(context: CommandContext): ConversationUpdate {
     const mode = context.args[0];
-    const liffUrl = buildLiffUrl();
+    const liffUrl = buildLiffUrl("/liff/meeting");
 
     // 明確選擇走文字流程，或沒設定 LIFF 時直接進文字流程
     if (mode === "text" || !liffUrl) {

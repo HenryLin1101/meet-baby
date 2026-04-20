@@ -2,16 +2,14 @@
 
 import liff from "@line/liff";
 import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
 
 type Status = "loading" | "ready" | "submitting" | "done" | "error";
-
-const LIFF_ID = process.env.NEXT_PUBLIC_LIFF_ID;
-const MISSING_ENV_MSG = "尚未設定 NEXT_PUBLIC_LIFF_ID，請於環境變數加入 LIFF ID。";
 
 export default function MeetingLiffPage() {
   const [status, setStatus] = useState<Status>(LIFF_ID ? "loading" : "error");
   const [errorMsg, setErrorMsg] = useState<string>(
-    LIFF_ID ? "" : MISSING_ENV_MSG
+    LIFF_ID ? "" : MISSING_LIFF_ENV_MSG
   );
 
   const [title, setTitle] = useState("");
@@ -27,7 +25,7 @@ export default function MeetingLiffPage() {
       try {
         await liff.init({
           liffId: LIFF_ID,
-          withLoginOnExternalBrowser: false,
+          withLoginOnExternalBrowser: true,
         });
         if (!cancelled) setStatus("ready");
       } catch (err) {
