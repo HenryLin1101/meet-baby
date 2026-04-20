@@ -58,7 +58,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
     altText: COMMAND_NOT_FOUND,
     contents: {
       "type": "bubble",
-      "size": "giga",
+      "size": "mega",
       "body": {
         "type": "box",
         "layout": "horizontal",
@@ -66,6 +66,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
         "backgroundColor": "#2C3439",
         "paddingAll": "15px",
         "alignItems": "center",
+        "cornerRadius": "15px",
         "contents": [
           {
             "type": "box",
@@ -75,17 +76,11 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
             "flex": 1,
             "contents": [
               {
-                "type": "box",
-                "layout": "baseline",
-                "justifyContent": "center",
-                "offsetTop": "10px",
-                "contents": [
-                  {
-                    "type": "icon",
-                    "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar_add_on.png",
-                    "size": "50px"
-                  }
-                ]
+                "type": "image",
+                "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar_add_on.png?v=1",
+                "size": "50px",
+                "aspectMode": "fit",
+                "aspectRatio": "1:1"
               },
               {
                 "type": "text",
@@ -112,17 +107,11 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
             "flex": 1,
             "contents": [
               {
-                "type": "box",
-                "layout": "baseline",
-                "justifyContent": "center",
-                "offsetTop": "10px",
-                "contents": [
-                  {
-                    "type": "icon",
-                    "url": WINDOW_LOCATION_ORIGIN + "/icons/dashboard.png",
-                    "size": "50px"
-                  }
-                ]
+                "type": "image",
+                "url": WINDOW_LOCATION_ORIGIN + "/icons/dashboard.png?v=1",
+                "size": "50px",
+                "aspectMode": "fit",
+                "aspectRatio": "1:1"
               },
               {
                 "type": "text",
@@ -149,17 +138,11 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
             "flex": 1,
             "contents": [
               {
-                "type": "box",
-                "layout": "baseline",
-                "justifyContent": "center",
-                "offsetTop": "10px",
-                "contents": [
-                  {
-                    "type": "icon",
-                    "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar_month.png",
-                    "size": "50px"
-                  }
-                ]
+                "type": "image",
+                "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar_month.png?v=1",
+                "size": "50px",
+                "aspectMode": "fit",
+                "aspectRatio": "1:1"
               },
               {
                 "type": "text",
