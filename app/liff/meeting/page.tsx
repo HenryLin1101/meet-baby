@@ -1,58 +1,9 @@
 "use client";
 
+import liff from "@line/liff";
 import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 
-type LiffSdk = {
-  init: (config: { liffId: string }) => Promise<void>;
-  isInClient: () => boolean;
-  sendMessages: (messages: Array<{ type: "text"; text: string }>) => Promise<void>;
-  closeWindow: () => void;
-};
-
-declare global {
-  interface Window {
-    liff?: LiffSdk;
-  }
-}
-
-const SDK_URL = "https://static.line-scdn.net/liff/edge/2/sdk.js";
-
 type Status = "loading" | "ready" | "submitting" | "done" | "error";
-
-function loadLiffSdk(): Promise<LiffSdk> {
-  return new Promise((resolve, reject) => {
-    if (typeof window === "undefined") {
-      reject(new Error("window is not available"));
-      return;
-    }
-    if (window.liff) {
-      resolve(window.liff);
-      return;
-    }
-    const existing = document.querySelector<HTMLScriptElement>(
-      `script[src="${SDK_URL}"]`
-    );
-    const onReady = () => {
-      if (window.liff) resolve(window.liff);
-      else reject(new Error("LIFF SDK loaded but window.liff is missing"));
-    };
-    if (existing) {
-      existing.addEventListener("load", onReady, { once: true });
-      existing.addEventListener(
-        "error",
-        () => reject(new Error("Failed to load LIFF SDK")),
-        { once: true }
-      );
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = SDK_URL;
-    script.async = true;
-    script.onload = onReady;
-    script.onerror = () => reject(new Error("Failed to load LIFF SDK"));
-    document.head.appendChild(script);
-  });
-}
 
 const LIFF_ID = process.env.NEXT_PUBLIC_LIFF_ID;
 const MISSING_ENV_MSG = "尚未設定 NEXT_PUBLIC_LIFF_ID，請於環境變數加入 LIFF ID。";
@@ -74,8 +25,10 @@ export default function MeetingLiffPage() {
     let cancelled = false;
     (async () => {
       try {
-        const sdk = await loadLiffSdk();
-        await sdk.init({ liffId: LIFF_ID });
+        await liff.init({
+          liffId: LIFF_ID,
+          withLoginOnExternalBrowser: true,
+        });
         if (!cancelled) setStatus("ready");
       } catch (err) {
         if (cancelled) return;
@@ -96,8 +49,7 @@ export default function MeetingLiffPage() {
     setStatus("submitting");
 
     try {
-      const liff = window.liff;
-      if (liff?.isInClient?.()) {
+      if (liff.isInClient()) {
         await liff.sendMessages([{ type: "text", text: summary }]);
         setStatus("done");
         liff.closeWindow();
