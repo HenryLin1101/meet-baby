@@ -5,6 +5,7 @@ type ChatGroupRow = {
   id: number;
   line_group_id: string;
   name: string | null;
+  picture_url: string | null;
 };
 
 type LineUserRow = {
@@ -31,6 +32,12 @@ export type GroupMember = {
   lineUserId: string;
   displayName: string;
   pictureUrl: string | null;
+};
+
+export type LineUserReference = {
+  userId: number;
+  lineUserId: string;
+  displayName: string;
 };
 
 type GroupMemberRow = {
@@ -174,7 +181,7 @@ async function getChatGroupByLineGroupId(
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name")
+    .select("id, line_group_id, name, picture_url")
     .eq("line_group_id", lineGroupId)
     .maybeSingle<ChatGroupRow>();
 
@@ -217,21 +224,28 @@ async function getActiveMembership(
 
 export async function ensureChatGroup(
   lineGroupId: string,
-  name?: string | null
+  name?: string | null,
+  pictureUrl?: string | null
 ): Promise<ChatGroupRow> {
   const supabase = getSupabaseAdmin();
   const trimmedLineGroupId = requireNonEmpty(lineGroupId, "groupId");
   const trimmedName = normalizeOptionalText(name);
+  const normalizedPictureUrl = normalizeOptionalText(pictureUrl);
 
-  const insertPayload: { line_group_id: string; name?: string | null } = {
+  const insertPayload: {
+    line_group_id: string;
+    name?: string | null;
+    picture_url?: string | null;
+  } = {
     line_group_id: trimmedLineGroupId,
   };
   if (trimmedName) insertPayload.name = trimmedName;
+  if (normalizedPictureUrl) insertPayload.picture_url = normalizedPictureUrl;
 
   const { data, error } = await supabase
     .from("chat_groups")
     .upsert(insertPayload, { onConflict: "line_group_id" })
-    .select("id, line_group_id, name")
+    .select("id, line_group_id, name, picture_url")
     .single<ChatGroupRow>();
 
   assertNoError(error, "建立或更新群組資料失敗。");
@@ -360,6 +374,32 @@ export async function listActiveGroupMembers(
       pictureUrl: user.picture_url === null ? null : String(user.picture_url),
     };
   });
+}
+
+export async function listLineUsersByIds(
+  userIds: number[]
+): Promise<LineUserReference[]> {
+  const supabase = getSupabaseAdmin();
+  const normalizedUserIds = [...new Set(userIds.map(Number))].filter(Number.isFinite);
+
+  if (normalizedUserIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("line_users")
+    .select("id, line_user_id, display_name")
+    .in("id", normalizedUserIds)
+    .order("display_name", { ascending: true })
+    .order("id", { ascending: true });
+
+  assertNoError(error, "讀取 LINE 使用者資料失敗。");
+
+  return (data ?? []).map((row) => ({
+    userId: Number(row.id),
+    lineUserId: String(row.line_user_id),
+    displayName: String(row.display_name),
+  }));
 }
 
 export async function createEventWithAttendees(

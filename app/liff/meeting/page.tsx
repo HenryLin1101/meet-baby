@@ -1,8 +1,15 @@
 "use client";
 
 import liff from "@line/liff";
-import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
+import MemberMultiSelect from "@/lib/tools/MemberMultiSelect";
 
 type Status =
   | "loading"
@@ -128,6 +135,10 @@ export default function MeetingLiffPage() {
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (status !== "ready") return;
+    if (selectedAttendeeIds.length === 0) {
+      window.alert("請至少選擇一位參與者。");
+      return;
+    }
 
     setStatus("submitting");
     console.log("[meeting] submitting event", {
@@ -294,27 +305,16 @@ export default function MeetingLiffPage() {
           </Field>
 
           <Field label="參與者" required>
-            <select
-              multiple
-              style={{ ...inputStyle, minHeight: "10rem" }}
-              value={selectedAttendeeIds}
-              onChange={(e) =>
-                setSelectedAttendeeIds(
-                  Array.from(e.currentTarget.selectedOptions, (option) => option.value)
-                )
-              }
+            <MemberMultiSelect
+              members={members}
+              selectedIds={selectedAttendeeIds}
+              onChange={setSelectedAttendeeIds}
               disabled={disabled || members.length === 0}
-              required
-            >
-              {members.map((member) => (
-                <option key={member.userId} value={member.userId}>
-                  {member.displayName}
-                </option>
-              ))}
-            </select>
+              compact={isCompact}
+            />
             <span style={helperTextStyle}>
               {members.length > 0
-                ? "可多選參與者；若未自動選到自己，請手動補選。"
+                ? `可多選參與者；若未自動選到自己，請手動補選。已載入 ${members.length} 位成員。`
                 : "目前群組成員清單為空，請先在群組中呼叫米特寶寶同步成員。"}
             </span>
           </Field>

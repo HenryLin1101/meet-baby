@@ -1,5 +1,6 @@
 import {
   createEventWithAttendees,
+  listLineUsersByIds,
   RepositoryError,
   upsertLineUser,
 } from "@/lib/db/repository";
@@ -33,6 +34,48 @@ function errorResponse(message: string, status: number) {
 
 function toTaipeiIso(date: string, time: string): string {
   return `${date}T${time}:00+08:00`;
+}
+
+function buildMentionNotification(input: {
+  title: string;
+  timeLabel: string;
+  location?: string | null;
+  note?: string | null;
+  attendees: { lineUserId: string }[];
+}) {
+  const lines = [
+    "【會議預約】",
+    `主題：${input.title}`,
+    `時間：${input.timeLabel}`,
+  ];
+
+  const location = input.location?.trim();
+  if (location) lines.push(`地點：${location}`);
+
+  const attendeePlaceholders = input.attendees.map((_, index) => `{user${index + 1}}`);
+  if (attendeePlaceholders.length > 0) {
+    lines.push(`參與者：${attendeePlaceholders.join("、")}`);
+  }
+
+  const note = input.note?.trim();
+  if (note) lines.push(`備註：${note}`);
+
+  return {
+    type: "textV2" as const,
+    text: lines.join("\n"),
+    substitution: Object.fromEntries(
+      input.attendees.map((attendee, index) => [
+        `user${index + 1}`,
+        {
+          type: "mention" as const,
+          mentionee: {
+            type: "user" as const,
+            userId: attendee.lineUserId,
+          },
+        },
+      ])
+    ),
+  };
 }
 
 function parseBody(body: CreateEventRequestBody) {
@@ -99,6 +142,7 @@ export async function POST(request: Request) {
       attendeeUserIds: input.attendeeUserIds,
       timezone: "Asia/Taipei",
     });
+    const attendeeLineUsers = await listLineUsersByIds(input.attendeeUserIds);
 
     const summary = buildMeetingSummary({
       title: createdEvent.title,
@@ -116,7 +160,21 @@ export async function POST(request: Request) {
       const client = createMessagingClient();
       await client.pushMessage({
         to: createdEvent.lineGroupId,
-        messages: [{ type: "text", text: summary }],
+        messages:
+          attendeeLineUsers.length > 0
+            ? [
+                buildMentionNotification({
+                  title: createdEvent.title,
+                  timeLabel: formatMeetingDateTime(
+                    createdEvent.startsAt,
+                    createdEvent.timezone
+                  ),
+                  location: createdEvent.location,
+                  note: createdEvent.description,
+                  attendees: attendeeLineUsers,
+                }),
+              ]
+            : [{ type: "text", text: summary }],
       });
     } catch (error) {
       notificationSent = false;

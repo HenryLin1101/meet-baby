@@ -55,9 +55,13 @@ CREATE TABLE IF NOT EXISTS chat_groups (
   id BIGSERIAL PRIMARY KEY,
   line_group_id TEXT NOT NULL UNIQUE,
   name TEXT,
+  picture_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE chat_groups
+  ADD COLUMN IF NOT EXISTS picture_url TEXT;
 
 CREATE TABLE IF NOT EXISTS group_memberships (
   id BIGSERIAL PRIMARY KEY,

@@ -8,6 +8,9 @@
 
 BEGIN;
 
+ALTER TABLE public.chat_groups
+  ADD COLUMN IF NOT EXISTS picture_url TEXT;
+
 CREATE OR REPLACE FUNCTION public.create_event_with_attendees(
   p_line_group_id TEXT,
   p_created_by_line_user_id TEXT,

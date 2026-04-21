@@ -312,13 +312,19 @@ async function replyUpdate(
 async function getGroupName(
   client: messagingApi.MessagingApiClient,
   groupId: string
-): Promise<string | null> {
+): Promise<{ name: string | null; pictureUrl: string | null }> {
   try {
     const summary = await client.getGroupSummary(groupId);
-    return summary.groupName ?? null;
+    return {
+      name: summary.groupName ?? null,
+      pictureUrl: summary.pictureUrl ?? null,
+    };
   } catch (error) {
     console.error("[LINE group summary]", error);
-    return null;
+    return {
+      name: null,
+      pictureUrl: null,
+    };
   }
 }
 
@@ -336,8 +342,12 @@ async function syncGroupFromJoin(
 ): Promise<void> {
   if (!isGroupJoinEvent(event)) return;
 
-  const groupName = await getGroupName(client, event.source.groupId);
-  await ensureChatGroup(event.source.groupId, groupName);
+  const groupSummary = await getGroupName(client, event.source.groupId);
+  await ensureChatGroup(
+    event.source.groupId,
+    groupSummary.name,
+    groupSummary.pictureUrl
+  );
 }
 
 async function syncAddressedLineUser(
@@ -348,6 +358,7 @@ async function syncAddressedLineUser(
   const groupId = event.source.groupId;
   const userId = event.source.userId;
   if (!userId) return;
+  const groupSummary = await getGroupName(client, groupId);
 
   const groupMemberProfile = await client
     .getGroupMemberProfile(groupId, userId)
@@ -361,6 +372,7 @@ async function syncAddressedLineUser(
     displayName: groupMemberProfile?.displayName ?? "LINE 使用者",
     pictureUrl: groupMemberProfile?.pictureUrl ?? null,
   });
+  await ensureChatGroup(groupId, groupSummary.name, groupSummary.pictureUrl);
   await upsertGroupMembership(groupId, userId);
 }
 
