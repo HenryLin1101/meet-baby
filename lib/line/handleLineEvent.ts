@@ -1,5 +1,9 @@
 import { messagingApi, webhook } from "@line/bot-sdk";
-import path from "path";
+import {
+  ensureChatGroup,
+  upsertGroupMembership,
+  upsertLineUser,
+} from "@/lib/db/repository";
 import { getCommandByName, normalizeText, routeCommand } from "@/lib/line/commandRouter";
 import {
   clearConversationState,
@@ -7,6 +11,7 @@ import {
   setConversationState,
   type ConversationState,
 } from "@/lib/conversation/state";
+import { createMessagingClient } from "@/lib/line/messagingClient";
 import type {
   CommandContext,
   ConversationUpdate,
@@ -16,6 +21,12 @@ import { buildLiffUrl } from "@/lib/liff/utils";
 
 type LineEvent = webhook.Event;
 type LineMessageEvent = Extract<LineEvent, { type: "message" }>;
+type GroupJoinEvent = Extract<LineEvent, { type: "join" }> & {
+  source: webhook.GroupSource;
+};
+type GroupMessageEvent = LineMessageEvent & {
+  source: webhook.GroupSource;
+};
 
 const WELCOME_ON_FOLLOW = "歡迎加入好友！有問題隨時傳訊息給我。";
 const WELCOME_ON_JOIN = "大家好！我已加入此聊天室，請多指教。";
@@ -29,10 +40,6 @@ const CANCEL_QUICK_REPLY: QuickReplyOption = { label: "取消", text: "取消" }
 /** 在群組中沒有 @ 也能喚醒機器人的別名。 */
 const BOT_ALIASES = ["米特寶寶", "米特", "米寶", "肥特寶寶", "肥寶"] as const;
 const WINDOW_LOCATION_ORIGIN = "https://meet-baby.vercel.app";
-
-function createMessagingClient(channelAccessToken: string) {
-  return new messagingApi.MessagingApiClient({ channelAccessToken });
-}
 
 function textMessage(text: string, quickReplies?: QuickReplyOption[]) {
   if (!quickReplies || quickReplies.length === 0) {
@@ -297,6 +304,65 @@ async function replyUpdate(
   await reply(client, replyToken, update.reply, quickReplies);
 }
 
+async function getGroupName(
+  client: messagingApi.MessagingApiClient,
+  groupId: string
+): Promise<string | null> {
+  try {
+    const summary = await client.getGroupSummary(groupId);
+    return summary.groupName ?? null;
+  } catch (error) {
+    console.error("[LINE group summary]", error);
+    return null;
+  }
+}
+
+function isGroupJoinEvent(event: Extract<LineEvent, { type: "join" }>): event is GroupJoinEvent {
+  return event.source?.type === "group";
+}
+
+function isGroupMessageEvent(event: LineMessageEvent): event is GroupMessageEvent {
+  return event.source?.type === "group" && typeof event.source.userId === "string";
+}
+
+async function syncGroupFromJoin(
+  client: messagingApi.MessagingApiClient,
+  event: Extract<LineEvent, { type: "join" }>
+): Promise<void> {
+  if (!isGroupJoinEvent(event)) return;
+
+  const groupName = await getGroupName(client, event.source.groupId);
+  await ensureChatGroup(event.source.groupId, groupName);
+}
+
+async function syncAddressedGroupMember(
+  client: messagingApi.MessagingApiClient,
+  event: LineMessageEvent
+): Promise<void> {
+  if (!isGroupMessageEvent(event)) return;
+  const groupId = event.source.groupId;
+  const userId = event.source.userId;
+  if (!userId) return;
+
+  const [groupName, groupMemberProfile] = await Promise.all([
+    getGroupName(client, groupId),
+    client
+      .getGroupMemberProfile(groupId, userId)
+      .catch((error) => {
+        console.error("[LINE group member profile]", error);
+        return null;
+      }),
+  ]);
+
+  await ensureChatGroup(groupId, groupName);
+  await upsertLineUser({
+    lineUserId: userId,
+    displayName: groupMemberProfile?.displayName ?? "LINE 使用者",
+    pictureUrl: groupMemberProfile?.pictureUrl ?? null,
+  });
+  await upsertGroupMembership(groupId, userId);
+}
+
 /** 處理已在多輪流程中的下一則訊息；回傳是否已處理。 */
 async function handleContinuedConversation(
   client: messagingApi.MessagingApiClient,
@@ -357,6 +423,12 @@ async function handleTextMessage(
   // 新對話：必須有叫到 bot（@ 或別名）才會觸發
   if (!addressed) return;
 
+  try {
+    await syncAddressedGroupMember(client, event);
+  } catch (error) {
+    console.error("[LINE sync addressed member]", error);
+  }
+
   const routed = routeCommand(cleanedText);
   if (!routed) {
     await replyFlex(client, token, buildFallbackFlexMessage());
@@ -386,6 +458,11 @@ const eventHandlers: Partial<Record<LineEvent["type"], LineEventHandler>> = {
   },
   join: async (client, event) => {
     if (event.type !== "join") return;
+    try {
+      await syncGroupFromJoin(client, event);
+    } catch (error) {
+      console.error("[LINE join sync]", error);
+    }
     await client.replyMessage({
       replyToken: event.replyToken,
       messages: [textMessage(WELCOME_ON_JOIN)],

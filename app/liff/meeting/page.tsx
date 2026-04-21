@@ -4,7 +4,20 @@ import liff from "@line/liff";
 import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
 
-type Status = "loading" | "ready" | "submitting" | "done" | "error";
+type Status =
+  | "loading"
+  | "loadingMembers"
+  | "ready"
+  | "submitting"
+  | "done"
+  | "error";
+
+type GroupMember = {
+  userId: number;
+  lineUserId: string;
+  displayName: string;
+  pictureUrl: string | null;
+};
 
 export default function MeetingLiffPage() {
   const [status, setStatus] = useState<Status>(LIFF_ID ? "loading" : "error");
@@ -18,9 +31,14 @@ export default function MeetingLiffPage() {
   const [time, setTime] = useState("");
   const [location, setLocation] = useState("");
   const [note, setNote] = useState("");
+  const [groupId, setGroupId] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [members, setMembers] = useState<GroupMember[]>([]);
+  const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!LIFF_ID) return;
+
     let cancelled = false;
     (async () => {
       try {
@@ -28,13 +46,63 @@ export default function MeetingLiffPage() {
           liffId: LIFF_ID,
           withLoginOnExternalBrowser: true,
         });
-        if (!cancelled) setStatus("ready");
+
+        const context = liff.getContext();
+        const nextGroupId = context?.groupId?.trim();
+        const nextAccessToken = liff.getAccessToken()?.trim();
+        const currentLineUserId = liff.getDecodedIDToken()?.sub?.trim() ?? null;
+
+        if (!nextGroupId) {
+          throw new Error("請從 LINE 群組中開啟此 LIFF 頁面。");
+        }
+        if (!nextAccessToken) {
+          throw new Error("無法取得 LINE access token。");
+        }
+        if (cancelled) return;
+
+        setGroupId(nextGroupId);
+        setAccessToken(nextAccessToken);
+        setStatus("loadingMembers");
+
+        const response = await fetch(
+          `/api/group-members?groupId=${encodeURIComponent(nextGroupId)}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${nextAccessToken}`,
+            },
+            cache: "no-store",
+          }
+        );
+
+        const payload = (await response.json()) as {
+          error?: string;
+          currentLineUserId?: string;
+          members?: GroupMember[];
+        };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "讀取群組成員失敗");
+        }
+
+        const nextMembers = payload.members ?? [];
+        const fallbackCurrentUserId = payload.currentLineUserId ?? currentLineUserId;
+        const defaultSelected = nextMembers
+          .filter((member) => member.lineUserId === fallbackCurrentUserId)
+          .map((member) => String(member.userId));
+
+        if (cancelled) return;
+
+        setMembers(nextMembers);
+        setSelectedAttendeeIds(defaultSelected);
+        setStatus("ready");
       } catch (err) {
         if (cancelled) return;
         setStatus("error");
         setErrorMsg(err instanceof Error ? err.message : "LIFF 初始化失敗");
       }
     })();
+
     return () => {
       cancelled = true;
     };
@@ -44,18 +112,44 @@ export default function MeetingLiffPage() {
     e.preventDefault();
     if (status !== "ready") return;
 
-    const summary = buildSummary({ title, date, time, location, note });
     setStatus("submitting");
 
     try {
-      if (liff.isInClient()) {
-        await liff.sendMessages([{ type: "text", text: summary }]);
-        setStatus("done");
-        liff.closeWindow();
-        return;
+      const response = await fetch("/api/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          groupId,
+          title,
+          date,
+          time,
+          location,
+          note,
+          attendeeUserIds: selectedAttendeeIds.map(Number),
+        }),
+      });
+
+      const payload = (await response.json()) as {
+        error?: string;
+        notificationSent?: boolean;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "建立活動失敗");
       }
-      window.alert("（非 LINE 內開啟，僅模擬送出）\n\n" + summary);
+
       setStatus("done");
+
+      if (payload.notificationSent === false) {
+        window.alert("活動已建立，但群組通知送出失敗。");
+      }
+
+      if (liff.isInClient()) {
+        window.setTimeout(() => liff.closeWindow(), 800);
+      }
     } catch (err) {
       setStatus("ready");
       window.alert("送出失敗：" + (err instanceof Error ? err.message : "unknown"));
@@ -90,7 +184,7 @@ export default function MeetingLiffPage() {
             <div style={badgeStyle}>MITE BABY</div>
             <h1 style={titleStyle}>預約會議</h1>
             <p style={subtitleStyle}>
-              填好下方資訊送出，會直接在聊天室留下會議摘要。
+              填好下方資訊送出，會建立活動資料並通知群組。
             </p>
           </div>
           <div style={statusStyle}>
@@ -98,11 +192,13 @@ export default function MeetingLiffPage() {
               ? "LIFF 已就緒"
               : status === "loading"
                 ? "LIFF 載入中"
-                : status === "submitting"
-                  ? "送出中"
-                  : status === "done"
-                    ? "已送出"
-                    : "初始化失敗"}
+                : status === "loadingMembers"
+                  ? "載入成員中"
+                  : status === "submitting"
+                    ? "送出中"
+                    : status === "done"
+                      ? "已送出"
+                      : "初始化失敗"}
           </div>
         </div>
 
@@ -163,6 +259,32 @@ export default function MeetingLiffPage() {
             />
           </Field>
 
+          <Field label="參與者" required>
+            <select
+              multiple
+              style={{ ...inputStyle, minHeight: "10rem" }}
+              value={selectedAttendeeIds}
+              onChange={(e) =>
+                setSelectedAttendeeIds(
+                  Array.from(e.currentTarget.selectedOptions, (option) => option.value)
+                )
+              }
+              disabled={disabled || members.length === 0}
+              required
+            >
+              {members.map((member) => (
+                <option key={member.userId} value={member.userId}>
+                  {member.displayName}
+                </option>
+              ))}
+            </select>
+            <span style={helperTextStyle}>
+              {members.length > 0
+                ? "可多選參與者；若未自動選到自己，請手動補選。"
+                : "目前群組成員清單為空，請先在群組中呼叫米特寶寶同步成員。"}
+            </span>
+          </Field>
+
           <button
             type="submit"
             style={{
@@ -177,7 +299,7 @@ export default function MeetingLiffPage() {
               ? "送出中…"
               : status === "done"
                 ? "已送出"
-                : status === "loading"
+                : status === "loading" || status === "loadingMembers"
                   ? "載入中…"
                   : "送出"}
           </button>
@@ -185,23 +307,6 @@ export default function MeetingLiffPage() {
       </div>
     </main>
   );
-}
-
-function buildSummary(input: {
-  title: string;
-  date: string;
-  time: string;
-  location: string;
-  note: string;
-}): string {
-  const lines = [
-    "【會議預約】",
-    `主題：${input.title}`,
-    `時間：${input.date} ${input.time}`,
-  ];
-  if (input.location.trim()) lines.push(`地點：${input.location.trim()}`);
-  if (input.note.trim()) lines.push(`備註：${input.note.trim()}`);
-  return lines.join("\n");
 }
 
 function Field({
@@ -346,6 +451,12 @@ const fieldStyle: CSSProperties = {
 const labelStyle: CSSProperties = {
   fontSize: "0.85rem",
   color: "var(--muted)",
+};
+
+const helperTextStyle: CSSProperties = {
+  fontSize: "0.8rem",
+  color: "var(--muted)",
+  lineHeight: 1.5,
 };
 
 const requiredStyle: CSSProperties = {
