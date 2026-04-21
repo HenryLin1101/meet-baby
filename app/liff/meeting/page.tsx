@@ -51,6 +51,12 @@ export default function MeetingLiffPage() {
         const nextGroupId = params.get("groupId")?.trim();
         const nextAccessToken = liff.getAccessToken()?.trim();
         const currentLineUserId = liff.getDecodedIDToken()?.sub?.trim() ?? null;
+        console.log("[meeting] liff init complete", {
+          nextGroupId,
+          hasAccessToken: Boolean(nextAccessToken),
+          currentLineUserId,
+          search: window.location.search,
+        });
 
         if (!nextGroupId) {
           throw new Error("缺少群組資訊，請從機器人在群組內提供的 LIFF 連結開啟。");
@@ -63,6 +69,9 @@ export default function MeetingLiffPage() {
         setGroupId(nextGroupId);
         setAccessToken(nextAccessToken);
         setStatus("loadingMembers");
+        console.log("[meeting] fetching group members", {
+          groupId: nextGroupId,
+        });
 
         const response = await fetch(
           `/api/group-members?groupId=${encodeURIComponent(nextGroupId)}`,
@@ -80,6 +89,13 @@ export default function MeetingLiffPage() {
           currentLineUserId?: string;
           members?: GroupMember[];
         };
+        console.log("[meeting] group members response", {
+          ok: response.ok,
+          status: response.status,
+          error: payload.error,
+          currentLineUserId: payload.currentLineUserId,
+          memberCount: payload.members?.length ?? 0,
+        });
 
         if (!response.ok) {
           throw new Error(payload.error ?? "讀取群組成員失敗");
@@ -97,6 +113,7 @@ export default function MeetingLiffPage() {
         setSelectedAttendeeIds(defaultSelected);
         setStatus("ready");
       } catch (err) {
+        console.error("[meeting] init failed", err);
         if (cancelled) return;
         setStatus("error");
         setErrorMsg(err instanceof Error ? err.message : "LIFF 初始化失敗");
@@ -113,6 +130,16 @@ export default function MeetingLiffPage() {
     if (status !== "ready") return;
 
     setStatus("submitting");
+    console.log("[meeting] submitting event", {
+      groupId,
+      title,
+      date,
+      time,
+      location,
+      note,
+      attendeeUserIds: selectedAttendeeIds.map(Number),
+      hasAccessToken: Boolean(accessToken),
+    });
 
     try {
       const response = await fetch("/api/events", {
@@ -136,6 +163,12 @@ export default function MeetingLiffPage() {
         error?: string;
         notificationSent?: boolean;
       };
+      console.log("[meeting] create event response", {
+        ok: response.ok,
+        status: response.status,
+        error: payload.error,
+        notificationSent: payload.notificationSent,
+      });
 
       if (!response.ok) {
         throw new Error(payload.error ?? "建立活動失敗");
@@ -151,6 +184,7 @@ export default function MeetingLiffPage() {
         window.setTimeout(() => liff.closeWindow(), 800);
       }
     } catch (err) {
+      console.error("[meeting] submit failed", err);
       setStatus("ready");
       window.alert("送出失敗：" + (err instanceof Error ? err.message : "unknown"));
     }
