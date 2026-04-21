@@ -84,6 +84,26 @@ type ListedEventOwnerRow = {
   display_name: string;
 };
 
+type EventReminderEventRow = {
+  id: number;
+  group_id: number;
+  title: string;
+  description: string | null;
+  location: string | null;
+  starts_at: string;
+  timezone: string;
+  status: string;
+  reminder_message_id: string | null;
+  reminder_scheduled_at: string | null;
+  reminder_processing_at: string | null;
+  reminder_sent_at: string | null;
+  reminder_last_error: string | null;
+};
+
+type EventReminderAttendeeRow = {
+  user_id: number;
+};
+
 export type CreateEventWithAttendeesInput = {
   lineGroupId: string;
   createdByLineUserId: string;
@@ -118,6 +138,27 @@ export type ListedEvent = {
   timezone: string;
   status: string;
   ownerDisplayName: string;
+};
+
+export type EventReminderDetails = {
+  eventId: number;
+  lineGroupId: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  startsAt: string;
+  timezone: string;
+  status: string;
+  reminderMessageId: string | null;
+  reminderScheduledAt: string | null;
+  reminderSentAt: string | null;
+  attendees: LineUserReference[];
+};
+
+export type EventReminderScheduleInput = {
+  eventId: number;
+  messageId: string;
+  scheduledAt: string;
 };
 
 export class RepositoryError extends Error {
@@ -487,6 +528,161 @@ export async function listGroupEvents(
     ownerDisplayName:
       ownerMap.get(Number(row.created_by_user_id)) ?? "未知建立者",
   }));
+}
+
+export async function setEventReminderSchedule(
+  input: EventReminderScheduleInput
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const eventId = Number(input.eventId);
+  if (!Number.isFinite(eventId)) {
+    throw new RepositoryError("eventId 格式不正確。", 400, "INVALID_INPUT");
+  }
+
+  const messageId = requireNonEmpty(input.messageId, "messageId");
+  const scheduledAt = parseEventDate(input.scheduledAt, "scheduledAt");
+
+  const { error } = await supabase
+    .from("events")
+    .update({
+      reminder_message_id: messageId,
+      reminder_scheduled_at: scheduledAt.toISOString(),
+      reminder_last_error: null,
+    })
+    .eq("id", eventId);
+
+  assertNoError(error, "儲存提醒排程失敗。");
+}
+
+export async function claimEventReminder(eventId: number): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = Number(eventId);
+  if (!Number.isFinite(normalizedEventId)) {
+    throw new RepositoryError("eventId 格式不正確。", 400, "INVALID_INPUT");
+  }
+
+  const { data, error } = await supabase
+    .from("events")
+    .update({
+      reminder_processing_at: new Date().toISOString(),
+      reminder_last_error: null,
+    })
+    .eq("id", normalizedEventId)
+    .eq("status", "scheduled")
+    .is("reminder_sent_at", null)
+    .is("reminder_processing_at", null)
+    .select("id")
+    .maybeSingle<{ id: number }>();
+
+  assertNoError(error, "鎖定提醒任務失敗。");
+  return Boolean(data);
+}
+
+export async function releaseEventReminderFailure(
+  eventId: number,
+  message: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = Number(eventId);
+  if (!Number.isFinite(normalizedEventId)) {
+    throw new RepositoryError("eventId 格式不正確。", 400, "INVALID_INPUT");
+  }
+
+  const { error } = await supabase
+    .from("events")
+    .update({
+      reminder_processing_at: null,
+      reminder_last_error: normalizeOptionalText(message),
+    })
+    .eq("id", normalizedEventId);
+
+  assertNoError(error, "更新提醒失敗狀態失敗。");
+}
+
+export async function markEventReminderSent(eventId: number): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = Number(eventId);
+  if (!Number.isFinite(normalizedEventId)) {
+    throw new RepositoryError("eventId 格式不正確。", 400, "INVALID_INPUT");
+  }
+
+  const { error } = await supabase
+    .from("events")
+    .update({
+      reminder_processing_at: null,
+      reminder_sent_at: new Date().toISOString(),
+      reminder_last_error: null,
+    })
+    .eq("id", normalizedEventId);
+
+  assertNoError(error, "標記提醒已送出失敗。");
+}
+
+export async function getEventReminderDetails(
+  eventId: number
+): Promise<EventReminderDetails | null> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = Number(eventId);
+  if (!Number.isFinite(normalizedEventId)) {
+    throw new RepositoryError("eventId 格式不正確。", 400, "INVALID_INPUT");
+  }
+
+  const { data: event, error: eventError } = await supabase
+    .from("events")
+    .select(
+      "id, group_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_scheduled_at, reminder_processing_at, reminder_sent_at, reminder_last_error"
+    )
+    .eq("id", normalizedEventId)
+    .maybeSingle<EventReminderEventRow>();
+
+  assertNoError(eventError, "讀取提醒活動失敗。");
+
+  if (!event) {
+    return null;
+  }
+
+  const { data: group, error: groupError } = await supabase
+    .from("chat_groups")
+    .select("id, line_group_id, name, picture_url")
+    .eq("id", Number(event.group_id))
+    .maybeSingle<ChatGroupRow>();
+
+  assertNoError(groupError, "讀取群組資料失敗。");
+  if (!group) {
+    throw new RepositoryError("群組資料不存在。", 404, "GROUP_NOT_FOUND");
+  }
+
+  const { data: attendeeRows, error: attendeeError } = await supabase
+    .from("event_attendees")
+    .select("user_id")
+    .eq("event_id", normalizedEventId)
+    .order("user_id", { ascending: true });
+
+  assertNoError(attendeeError, "讀取活動參與者失敗。");
+
+  const attendees = await listLineUsersByIds(
+    ((attendeeRows ?? []) as EventReminderAttendeeRow[]).map((row) => Number(row.user_id))
+  );
+
+  return {
+    eventId: Number(event.id),
+    lineGroupId: String(group.line_group_id),
+    title: String(event.title),
+    description: event.description === null ? null : String(event.description),
+    location: event.location === null ? null : String(event.location),
+    startsAt: new Date(event.starts_at).toISOString(),
+    timezone: String(event.timezone),
+    status: String(event.status),
+    reminderMessageId:
+      event.reminder_message_id === null ? null : String(event.reminder_message_id),
+    reminderScheduledAt:
+      event.reminder_scheduled_at === null
+        ? null
+        : new Date(event.reminder_scheduled_at).toISOString(),
+    reminderSentAt:
+      event.reminder_sent_at === null ? null : new Date(event.reminder_sent_at).toISOString(),
+    attendees,
+  };
 }
 
 export async function createEventWithAttendees(

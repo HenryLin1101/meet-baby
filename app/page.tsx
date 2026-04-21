@@ -1,7 +1,7 @@
 "use client";
 
-import liff from "@line/liff";
 import { useEffect, useState, type CSSProperties } from "react";
+import { initLiffOrThrow } from "@/lib/liff/client";
 import {
   LIFF_ID,
   MISSING_LIFF_ENV_MSG,
@@ -20,10 +20,7 @@ export default function HomePage() {
     let cancelled = false;
     (async () => {
       try {
-        await liff.init({
-          liffId: LIFF_ID,
-          withLoginOnExternalBrowser: true,
-        });
+        await initLiffOrThrow(LIFF_ID, "home");
         if (cancelled) return;
 
         setStatus("redirecting");
@@ -48,11 +45,9 @@ export default function HomePage() {
       <div style={cardStyle}>
         <h1 style={titleStyle}>米特寶寶</h1>
         <p style={subtitleStyle}>
-          {status === "redirecting"
-            ? "LIFF 已初始化，正在導向功能頁…"
-            : status === "loading"
-              ? "LIFF 初始化中…"
-              : "LIFF 初始化失敗"}
+          {status === "redirecting" || status === "loading"
+            ? "載入中..."
+            : "載入失敗"}
         </p>
         {status === "error" && <div style={errorBoxStyle}>{errorMsg}</div>}
       </div>

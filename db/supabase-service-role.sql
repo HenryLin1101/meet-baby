@@ -11,6 +11,13 @@ BEGIN;
 ALTER TABLE public.chat_groups
   ADD COLUMN IF NOT EXISTS picture_url TEXT;
 
+ALTER TABLE public.events
+  ADD COLUMN IF NOT EXISTS reminder_message_id TEXT,
+  ADD COLUMN IF NOT EXISTS reminder_scheduled_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS reminder_processing_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS reminder_last_error TEXT;
+
 CREATE OR REPLACE FUNCTION public.create_event_with_attendees(
   p_line_group_id TEXT,
   p_created_by_line_user_id TEXT,

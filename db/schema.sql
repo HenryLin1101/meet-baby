@@ -90,12 +90,24 @@ CREATE TABLE IF NOT EXISTS events (
   timezone TEXT NOT NULL DEFAULT 'Asia/Taipei',
   status event_status NOT NULL DEFAULT 'scheduled',
   meeting_url TEXT,
+  reminder_message_id TEXT,
+  reminder_scheduled_at TIMESTAMPTZ,
+  reminder_processing_at TIMESTAMPTZ,
+  reminder_sent_at TIMESTAMPTZ,
+  reminder_last_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT events_time_range_check CHECK (
     ends_at IS NULL OR ends_at > starts_at
   )
 );
+
+ALTER TABLE events
+  ADD COLUMN IF NOT EXISTS reminder_message_id TEXT,
+  ADD COLUMN IF NOT EXISTS reminder_scheduled_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS reminder_processing_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS reminder_last_error TEXT;
 
 CREATE TABLE IF NOT EXISTS event_attendees (
   id BIGSERIAL PRIMARY KEY,
@@ -151,6 +163,12 @@ CREATE INDEX IF NOT EXISTS idx_events_group_id_starts_at
 
 CREATE INDEX IF NOT EXISTS idx_events_created_by_user_id
   ON events (created_by_user_id);
+
+CREATE INDEX IF NOT EXISTS idx_events_reminder_scheduled_at
+  ON events (reminder_scheduled_at);
+
+CREATE INDEX IF NOT EXISTS idx_events_reminder_message_id
+  ON events (reminder_message_id);
 
 CREATE INDEX IF NOT EXISTS idx_event_attendees_user_id
   ON event_attendees (user_id);

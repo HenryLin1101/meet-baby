@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { initLiffOrThrow } from "@/lib/liff/client";
 import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
 
 type Status = "loading" | "loadingEvents" | "ready" | "error";
@@ -57,10 +58,7 @@ export default function DashboardLiffPage() {
     let cancelled = false;
     (async () => {
       try {
-        await liff.init({
-          liffId: LIFF_ID,
-          withLoginOnExternalBrowser: true,
-        });
+        await initLiffOrThrow(LIFF_ID, "dashboard");
 
         const params = new URLSearchParams(window.location.search);
         const groupId = params.get("groupId")?.trim();

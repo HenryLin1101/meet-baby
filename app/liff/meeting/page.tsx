@@ -8,6 +8,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { initLiffOrThrow } from "@/lib/liff/client";
 import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
 import MemberMultiSelect from "@/lib/tools/MemberMultiSelect";
 
@@ -44,15 +45,19 @@ export default function MeetingLiffPage() {
   const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!LIFF_ID) return;
+    console.log("[meeting] effect start", {
+      href: typeof window === "undefined" ? null : window.location.href,
+      hasLiffId: Boolean(LIFF_ID),
+    });
+    if (!LIFF_ID) {
+      console.warn("[meeting] missing LIFF_ID");
+      return;
+    }
 
     let cancelled = false;
     (async () => {
       try {
-        await liff.init({
-          liffId: LIFF_ID,
-          withLoginOnExternalBrowser: true,
-        });
+        await initLiffOrThrow(LIFF_ID, "meeting");
 
         const params = new URLSearchParams(window.location.search);
         const nextGroupId = params.get("groupId")?.trim();

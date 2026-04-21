@@ -1,5 +1,6 @@
 import {
   createEventWithAttendees,
+  setEventReminderSchedule,
   listGroupEvents,
   listLineUsersByIds,
   RepositoryError,
@@ -10,11 +11,13 @@ import {
   LineAuthError,
   verifyLineAccessToken,
 } from "@/lib/line/auth";
+import { buildMeetingCreatedMentionMessage } from "@/lib/line/eventNotifications";
 import { createMessagingClient } from "@/lib/line/messagingClient";
 import {
   buildMeetingSummary,
   formatMeetingDateTime,
 } from "@/lib/modules/meeting";
+import { publishEventReminder } from "@/lib/reminders/qstash";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,48 +38,6 @@ function errorResponse(message: string, status: number) {
 
 function toTaipeiIso(date: string, time: string): string {
   return `${date}T${time}:00+08:00`;
-}
-
-function buildMentionNotification(input: {
-  title: string;
-  timeLabel: string;
-  location?: string | null;
-  note?: string | null;
-  attendees: { lineUserId: string }[];
-}) {
-  const lines = [
-    "【會議預約】",
-    `主題：${input.title}`,
-    `時間：${input.timeLabel}`,
-  ];
-
-  const location = input.location?.trim();
-  if (location) lines.push(`地點：${location}`);
-
-  const attendeePlaceholders = input.attendees.map((_, index) => `{user${index + 1}}`);
-  if (attendeePlaceholders.length > 0) {
-    lines.push(`參與者：${attendeePlaceholders.join("、")}`);
-  }
-
-  const note = input.note?.trim();
-  if (note) lines.push(`備註：${note}`);
-
-  return {
-    type: "textV2" as const,
-    text: lines.join("\n"),
-    substitution: Object.fromEntries(
-      input.attendees.map((attendee, index) => [
-        `user${index + 1}`,
-        {
-          type: "mention" as const,
-          mentionee: {
-            type: "user" as const,
-            userId: attendee.lineUserId,
-          },
-        },
-      ])
-    ),
-  };
 }
 
 function parseBody(body: CreateEventRequestBody) {
@@ -164,12 +125,10 @@ export async function POST(request: Request) {
         messages:
           attendeeLineUsers.length > 0
             ? [
-                buildMentionNotification({
+                buildMeetingCreatedMentionMessage({
                   title: createdEvent.title,
-                  timeLabel: formatMeetingDateTime(
-                    createdEvent.startsAt,
-                    createdEvent.timezone
-                  ),
+                  startsAt: createdEvent.startsAt,
+                  timezone: createdEvent.timezone,
                   location: createdEvent.location,
                   note: createdEvent.description,
                   attendees: attendeeLineUsers,
@@ -182,10 +141,29 @@ export async function POST(request: Request) {
       console.error("[create-event.notify]", error);
     }
 
+    let reminderScheduled = true;
+    try {
+      const reminder = await publishEventReminder({
+        eventId: createdEvent.eventId,
+        startsAt: createdEvent.startsAt,
+      });
+      if (reminder) {
+        await setEventReminderSchedule({
+          eventId: createdEvent.eventId,
+          messageId: reminder.messageId,
+          scheduledAt: reminder.scheduledAt,
+        });
+      }
+    } catch (error) {
+      reminderScheduled = false;
+      console.error("[create-event.schedule-reminder]", error);
+    }
+
     return Response.json(
       {
         eventId: createdEvent.eventId,
         notificationSent,
+        reminderScheduled,
       },
       { status: 201 }
     );

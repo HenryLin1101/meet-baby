@@ -29,10 +29,15 @@ SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 LINE_CHANNEL_ACCESS_TOKEN=
 LINE_CHANNEL_SECRET=
+QSTASH_TOKEN=
+QSTASH_CURRENT_SIGNING_KEY=
+QSTASH_NEXT_SIGNING_KEY=
+APP_BASE_URL=
 NEXT_PUBLIC_LIFF_ID=
 ```
 
 `SUPABASE_SERVICE_ROLE_KEY` must stay on the server only. Do not expose it to the browser.
+`QSTASH_TOKEN` and the QStash signing keys should also stay on the server only.
 
 ## Learn More
 
