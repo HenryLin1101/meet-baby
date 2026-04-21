@@ -67,6 +67,23 @@ type CreatedEventRow = {
   attendee_display_names: string[];
 };
 
+type ListedEventRow = {
+  id: number;
+  created_by_user_id: number;
+  title: string;
+  description: string | null;
+  location: string | null;
+  starts_at: string;
+  ends_at: string | null;
+  timezone: string;
+  status: string;
+};
+
+type ListedEventOwnerRow = {
+  id: number;
+  display_name: string;
+};
+
 export type CreateEventWithAttendeesInput = {
   lineGroupId: string;
   createdByLineUserId: string;
@@ -89,6 +106,18 @@ export type CreatedEvent = {
   endsAt: string | null;
   timezone: string;
   attendeeDisplayNames: string[];
+};
+
+export type ListedEvent = {
+  eventId: number;
+  title: string;
+  description: string | null;
+  location: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  timezone: string;
+  status: string;
+  ownerDisplayName: string;
 };
 
 export class RepositoryError extends Error {
@@ -399,6 +428,64 @@ export async function listLineUsersByIds(
     userId: Number(row.id),
     lineUserId: String(row.line_user_id),
     displayName: String(row.display_name),
+  }));
+}
+
+export async function listGroupEvents(
+  lineGroupId: string
+): Promise<ListedEvent[]> {
+  const supabase = getSupabaseAdmin();
+  const group = await getChatGroupByLineGroupId(lineGroupId);
+  if (!group) {
+    throw new RepositoryError("群組資料不存在。", 404, "GROUP_NOT_FOUND");
+  }
+
+  const { data: events, error: eventError } = await supabase
+    .from("events")
+    .select(
+      "id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status"
+    )
+    .eq("group_id", group.id)
+    .eq("status", "scheduled")
+    .order("starts_at", { ascending: true })
+    .order("id", { ascending: true });
+
+  assertNoError(eventError, "讀取活動清單失敗。");
+
+  const rows = (events ?? []) as ListedEventRow[];
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const ownerIds = [...new Set(rows.map((row) => Number(row.created_by_user_id)))].filter(
+    Number.isFinite
+  );
+
+  const { data: owners, error: ownerError } = await supabase
+    .from("line_users")
+    .select("id, display_name")
+    .in("id", ownerIds);
+
+  assertNoError(ownerError, "讀取活動建立者資料失敗。");
+
+  const ownerMap = new Map<number, string>(
+    ((owners ?? []) as ListedEventOwnerRow[]).map((owner) => [
+      Number(owner.id),
+      String(owner.display_name),
+    ])
+  );
+
+  return rows.map((row) => ({
+    eventId: Number(row.id),
+    title: String(row.title),
+    description: row.description === null ? null : String(row.description),
+    location: row.location === null ? null : String(row.location),
+    startsAt: new Date(row.starts_at).toISOString(),
+    endsAt: row.ends_at === null ? null : new Date(row.ends_at).toISOString(),
+    timezone: String(row.timezone),
+    status: String(row.status),
+    ownerDisplayName:
+      ownerMap.get(Number(row.created_by_user_id)) ?? "未知建立者",
   }));
 }
 

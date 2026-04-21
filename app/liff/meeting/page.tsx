@@ -312,11 +312,6 @@ export default function MeetingLiffPage() {
               disabled={disabled || members.length === 0}
               compact={isCompact}
             />
-            <span style={helperTextStyle}>
-              {members.length > 0
-                ? `可多選參與者；若未自動選到自己，請手動補選。已載入 ${members.length} 位成員。`
-                : "目前群組成員清單為空，請先在群組中呼叫米特寶寶同步成員。"}
-            </span>
           </Field>
 
           <button

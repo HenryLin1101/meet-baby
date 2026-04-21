@@ -1,5 +1,6 @@
 import {
   createEventWithAttendees,
+  listGroupEvents,
   listLineUsersByIds,
   RepositoryError,
   upsertLineUser,
@@ -198,5 +199,45 @@ export async function POST(request: Request) {
 
     console.error("[create-event]", error);
     return errorResponse("建立活動失敗。", 500);
+  }
+}
+
+export async function GET(request: Request) {
+  const accessToken = getBearerToken(request.headers.get("authorization"));
+  if (!accessToken) {
+    return errorResponse("缺少 LINE access token。", 401);
+  }
+
+  const { searchParams } = new URL(request.url);
+  const groupId = searchParams.get("groupId")?.trim();
+  if (!groupId) {
+    return errorResponse("缺少 groupId。", 400);
+  }
+
+  try {
+    const verifiedUser = await verifyLineAccessToken(accessToken);
+    await upsertLineUser({
+      lineUserId: verifiedUser.lineUserId,
+      displayName: verifiedUser.displayName,
+      pictureUrl: verifiedUser.pictureUrl,
+      statusMessage: verifiedUser.statusMessage,
+    });
+
+    const events = await listGroupEvents(groupId);
+
+    return Response.json({
+      events,
+      currentLineUserId: verifiedUser.lineUserId,
+    });
+  } catch (error) {
+    if (error instanceof LineAuthError) {
+      return errorResponse(error.message, error.status);
+    }
+    if (error instanceof RepositoryError) {
+      return errorResponse(error.message, error.status);
+    }
+
+    console.error("[list-events]", error);
+    return errorResponse("讀取活動失敗。", 500);
   }
 }

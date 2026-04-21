@@ -9,7 +9,7 @@ import {
 } from "react";
 import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
 
-type Status = "loading" | "ready" | "error";
+type Status = "loading" | "loadingEvents" | "ready" | "error";
 
 type MeetingItem = {
   id: string;
@@ -18,6 +18,18 @@ type MeetingItem = {
   time: string;
   location: string;
   owner: string;
+};
+
+type DashboardEvent = {
+  eventId: number;
+  title: string;
+  description: string | null;
+  location: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  timezone: string;
+  status: string;
+  ownerDisplayName: string;
 };
 
 type CalendarCell = {
@@ -35,8 +47,10 @@ export default function DashboardLiffPage() {
   );
   const { isTablet, isCompact } = useResponsiveFlags();
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
-  const meetings = useMemo(() => buildFakeMeetings(), []);
-  const [selectedDateKey, setSelectedDateKey] = useState(() => meetings[0]?.date ?? formatDateKey(new Date()));
+  const [meetings, setMeetings] = useState<MeetingItem[]>([]);
+  const [selectedDateKey, setSelectedDateKey] = useState(() =>
+    formatDateKey(new Date())
+  );
 
   useEffect(() => {
     if (!LIFF_ID) return;
@@ -47,7 +61,53 @@ export default function DashboardLiffPage() {
           liffId: LIFF_ID,
           withLoginOnExternalBrowser: true,
         });
-        if (!cancelled) setStatus("ready");
+
+        const params = new URLSearchParams(window.location.search);
+        const groupId = params.get("groupId")?.trim();
+        const accessToken = liff.getAccessToken()?.trim();
+
+        if (!groupId) {
+          throw new Error("缺少群組資訊，請從機器人在群組內提供的 LIFF 連結開啟。");
+        }
+        if (!accessToken) {
+          throw new Error("無法取得 LINE access token。");
+        }
+        if (cancelled) return;
+
+        setStatus("loadingEvents");
+
+        const response = await fetch(
+          `/api/events?groupId=${encodeURIComponent(groupId)}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+            cache: "no-store",
+          }
+        );
+
+        const payload = (await response.json()) as {
+          error?: string;
+          events?: DashboardEvent[];
+        };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "讀取活動失敗");
+        }
+
+        const nextMeetings = (payload.events ?? []).map(mapEventToMeetingItem);
+        if (cancelled) return;
+
+        setMeetings(nextMeetings);
+        if (nextMeetings[0]) {
+          setSelectedDateKey(nextMeetings[0].date);
+          setCurrentMonth(startOfMonth(parseDateKey(nextMeetings[0].date)));
+        } else {
+          setSelectedDateKey(formatDateKey(new Date()));
+          setCurrentMonth(startOfMonth(new Date()));
+        }
+        setStatus("ready");
       } catch (err) {
         if (cancelled) return;
         setStatus("error");
@@ -93,9 +153,8 @@ export default function DashboardLiffPage() {
             }}
           >
             <div>
-              <div style={heroBadgeStyle}>MITE BABY DASHBOARD</div>
               <h1 style={titleStyle}>Meeting Dashboard</h1>
-              <p style={subtitleStyle}>假資料預覽後續會議時程。</p>
+              <p style={subtitleStyle}>顯示這個群組目前已建立的會議時程。</p>
             </div>
             <StatusBadge status={status} />
           </div>
@@ -173,19 +232,23 @@ export default function DashboardLiffPage() {
         <section style={sideColumnStyle}>
           <div style={panelStyle}>
             <h2 style={sectionTitleStyle}>即將到來</h2>
-            <div style={stackStyle}>
-              {upcomingMeetings.map((meeting) => (
-                <article key={meeting.id} style={meetingCardStyle}>
-                  <div style={meetingTimeStyle}>
-                    {meeting.date} {meeting.time}
-                  </div>
-                  <div style={meetingTitleStyle}>{meeting.title}</div>
-                  <div style={meetingMetaStyle}>
-                    {meeting.location} · {meeting.owner}
-                  </div>
-                </article>
-              ))}
-            </div>
+            {upcomingMeetings.length === 0 ? (
+              <p style={emptyStyle}>目前沒有即將到來的會議。</p>
+            ) : (
+              <div style={stackStyle}>
+                {upcomingMeetings.map((meeting) => (
+                  <article key={meeting.id} style={meetingCardStyle}>
+                    <div style={meetingTimeStyle}>
+                      {meeting.date} {meeting.time}
+                    </div>
+                    <div style={meetingTitleStyle}>{meeting.title}</div>
+                    <div style={meetingMetaStyle}>
+                      {meeting.location} · {meeting.owner}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
           </div>
 
           <div style={panelStyle}>
@@ -215,7 +278,13 @@ export default function DashboardLiffPage() {
 
 function StatusBadge({ status }: { status: Status }) {
   const label =
-    status === "ready" ? "LIFF 已就緒" : status === "loading" ? "LIFF 載入中" : "LIFF 初始化失敗";
+    status === "ready"
+      ? "資料已就緒"
+      : status === "loading"
+        ? "LIFF 載入中"
+        : status === "loadingEvents"
+          ? "活動載入中"
+          : "LIFF 初始化失敗";
   return (
     <span
       style={{
@@ -258,39 +327,6 @@ function useResponsiveFlags() {
   return state;
 }
 
-function buildFakeMeetings(): MeetingItem[] {
-  const today = startOfDay(new Date());
-  return [
-    createMeeting("m1", today, 1, "10:00", "每週專案同步", "會議室 A", "Henry"),
-    createMeeting("m2", today, 2, "14:30", "UI Review", "Google Meet", "Yuan"),
-    createMeeting("m3", today, 5, "09:30", "需求確認", "會議室 B", "PM Lin"),
-    createMeeting("m4", today, 8, "16:00", "Sprint Planning", "Google Meet", "Ivy"),
-    createMeeting("m5", today, 11, "11:00", "Demo Rehearsal", "會議室 C", "Mia"),
-    createMeeting("m6", today, 15, "15:30", "Roadmap 討論", "Google Meet", "Ryan"),
-  ];
-}
-
-function createMeeting(
-  id: string,
-  baseDate: Date,
-  offsetDays: number,
-  time: string,
-  title: string,
-  location: string,
-  owner: string
-): MeetingItem {
-  const date = new Date(baseDate);
-  date.setDate(date.getDate() + offsetDays);
-  return {
-    id,
-    title,
-    date: formatDateKey(date),
-    time,
-    location,
-    owner,
-  };
-}
-
 function groupMeetingsByDate(meetings: MeetingItem[]): Record<string, MeetingItem[]> {
   return meetings.reduce<Record<string, MeetingItem[]>>((acc, meeting) => {
     acc[meeting.date] ??= [];
@@ -319,8 +355,9 @@ function startOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
-function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+function parseDateKey(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
 }
 
 function addMonths(date: Date, amount: number): Date {
@@ -336,6 +373,48 @@ function formatDateKey(date: Date): string {
 
 function formatMonthLabel(date: Date): string {
   return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`;
+}
+
+function mapEventToMeetingItem(event: DashboardEvent): MeetingItem {
+  const startsAt = new Date(event.startsAt);
+
+  return {
+    id: String(event.eventId),
+    title: event.title,
+    date: formatDateKeyInTimeZone(startsAt, event.timezone),
+    time: formatTimeLabelInTimeZone(startsAt, event.timezone),
+    location: event.location?.trim() || "未提供地點",
+    owner: event.ownerDisplayName,
+  };
+}
+
+function formatDateKeyInTimeZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === "year")?.value ?? "0000";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatTimeLabelInTimeZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("zh-TW", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const hour = parts.find((part) => part.type === "hour")?.value ?? "00";
+  const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
+
+  return `${hour}:${minute}`;
 }
 
 const mainStyle: CSSProperties = {
