@@ -27,7 +27,9 @@ export class MeetingCommand extends CommandHandlerBase {
 
   start(context: CommandContext): ConversationUpdate {
     const mode = context.args[0];
-    const liffUrl = buildLiffUrl("/liff/meeting");
+    const liffUrl = buildLiffUrl("/liff/meeting", {
+      groupId: context.lineGroupId,
+    });
 
     // 明確選擇走文字流程，或沒設定 LIFF 時直接進文字流程
     if (mode === "text" || !liffUrl) {

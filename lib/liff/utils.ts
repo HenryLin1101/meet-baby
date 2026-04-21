@@ -4,13 +4,26 @@ export const LIFF_ID = process.env.NEXT_PUBLIC_LIFF_ID;
 export const MISSING_LIFF_ENV_MSG =
   "尚未設定 NEXT_PUBLIC_LIFF_ID，請於環境變數加入 LIFF ID。";
 
-export function buildLiffUrl(path?: string): string | null {
+export function buildLiffUrl(
+  path?: string,
+  query?: Record<string, string | null | undefined>
+): string | null {
   const id = LIFF_ID?.trim();
   if (!id) return null;
   if (!path) return `https://liff.line.me/${id}`;
 
   const normalizedPath = path.replace(/^\/+/, "");
-  return `https://liff.line.me/${id}/${normalizedPath}`;
+  const params = new URLSearchParams();
+  if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      const trimmedValue = value?.trim();
+      if (!trimmedValue) continue;
+      params.set(key, trimmedValue);
+    }
+  }
+
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return `https://liff.line.me/${id}/${normalizedPath}${suffix}`;
 }
 
 export function resolveLiffRedirectPath(search: string): string {

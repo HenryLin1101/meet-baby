@@ -22,6 +22,10 @@ export type RoutedCommand = {
   context: CommandContext;
 };
 
+type RouteCommandOptions = {
+  lineGroupId?: string;
+};
+
 export function getCommandByName(name: string): CommandHandlerBase | null {
   return commandByName[name] ?? null;
 }
@@ -56,7 +60,10 @@ function resolveKeywordCommandName(normalizedText: string): string | null {
   return null;
 }
 
-export function routeCommand(rawText: string): RoutedCommand | null {
+export function routeCommand(
+  rawText: string,
+  options?: RouteCommandOptions
+): RoutedCommand | null {
   const normalizedText = normalizeText(rawText);
   const explicit = parseExplicitCommand(normalizedText);
 
@@ -69,6 +76,7 @@ export function routeCommand(rawText: string): RoutedCommand | null {
         rawText,
         normalizedText,
         args: explicit.args,
+        lineGroupId: options?.lineGroupId,
       },
     };
   }
@@ -80,6 +88,11 @@ export function routeCommand(rawText: string): RoutedCommand | null {
 
   return {
     command,
-    context: { rawText, normalizedText, args: [] },
+    context: {
+      rawText,
+      normalizedText,
+      args: [],
+      lineGroupId: options?.lineGroupId,
+    },
   };
 }

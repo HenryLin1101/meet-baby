@@ -59,7 +59,11 @@ function textMessage(text: string, quickReplies?: QuickReplyOption[]) {
   };
 }
 
-function buildFallbackFlexMessage(): messagingApi.FlexMessage {
+function getLineGroupIdFromSource(source?: webhook.Source): string | undefined {
+  return source?.type === "group" ? source.groupId : undefined;
+}
+
+function buildFallbackFlexMessage(lineGroupId?: string): messagingApi.FlexMessage {
   return {
     type: "flex",
     altText: COMMAND_NOT_FOUND,
@@ -103,7 +107,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
             "action": {
               "type": "uri",
               "label": "action",
-              "uri": buildLiffUrl("/liff/meeting") ?? ""
+              "uri": buildLiffUrl("/liff/meeting", { groupId: lineGroupId }) ?? ""
             }
           },
           {
@@ -134,7 +138,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
             "action": {
               "type": "uri",
               "label": "action",
-              "uri": buildLiffUrl("/liff/dashboard") ?? ""
+              "uri": buildLiffUrl("/liff/dashboard", { groupId: lineGroupId }) ?? ""
             }
           },
           {
@@ -165,7 +169,7 @@ function buildFallbackFlexMessage(): messagingApi.FlexMessage {
             "action": {
               "type": "uri",
               "label": "action",
-              "uri": buildLiffUrl("/liff/calendar") ?? ""
+              "uri": buildLiffUrl("/liff/calendar", { groupId: lineGroupId }) ?? ""
             }
           }
         ]
@@ -232,11 +236,12 @@ function buildConversationKey(event: LineMessageEvent): string | null {
   return null;
 }
 
-function buildContext(rawText: string): CommandContext {
+function buildContext(rawText: string, lineGroupId?: string): CommandContext {
   return {
     rawText,
     normalizedText: normalizeText(rawText),
     args: [],
+    lineGroupId,
   };
 }
 
@@ -377,7 +382,10 @@ async function handleContinuedConversation(
     return false;
   }
 
-  const update = await cmd.continueConversation(activeState, buildContext(rawText));
+  const update = await cmd.continueConversation(
+    activeState,
+    buildContext(rawText, getLineGroupIdFromSource(event.source))
+  );
   applyUpdate(conversationKey, cmd.name, update);
   // 多輪回覆中，除非明確結束，否則仍在流程裡 → 加上取消按鈕
   const willBeInFlow = update.next !== "end";
@@ -394,6 +402,7 @@ async function handleTextMessage(
   if (event.message.type !== "text") return;
   const token = event.replyToken;
   if (!token) return;
+  const lineGroupId = getLineGroupIdFromSource(event.source);
 
   const { addressed, text: cleanedText } = resolveAddress(event.message);
   const conversationKey = buildConversationKey(event);
@@ -429,9 +438,9 @@ async function handleTextMessage(
     console.error("[LINE sync addressed member]", error);
   }
 
-  const routed = routeCommand(cleanedText);
+  const routed = routeCommand(cleanedText, { lineGroupId });
   if (!routed) {
-    await replyFlex(client, token, buildFallbackFlexMessage());
+    await replyFlex(client, token, buildFallbackFlexMessage(lineGroupId));
     return;
   }
 

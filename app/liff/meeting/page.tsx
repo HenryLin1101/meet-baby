@@ -47,13 +47,13 @@ export default function MeetingLiffPage() {
           withLoginOnExternalBrowser: true,
         });
 
-        const context = liff.getContext();
-        const nextGroupId = context?.groupId?.trim();
+        const params = new URLSearchParams(window.location.search);
+        const nextGroupId = params.get("groupId")?.trim();
         const nextAccessToken = liff.getAccessToken()?.trim();
         const currentLineUserId = liff.getDecodedIDToken()?.sub?.trim() ?? null;
 
         if (!nextGroupId) {
-          throw new Error("請從 LINE 群組中開啟此 LIFF 頁面。");
+          throw new Error("缺少群組資訊，請從機器人在群組內提供的 LIFF 連結開啟。");
         }
         if (!nextAccessToken) {
           throw new Error("無法取得 LINE access token。");
