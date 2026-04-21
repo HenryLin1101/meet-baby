@@ -218,30 +218,29 @@ async function getActiveMembership(
 export async function ensureChatGroup(
   lineGroupId: string,
   name?: string | null
-): Promise<void> {
+): Promise<ChatGroupRow> {
   const supabase = getSupabaseAdmin();
   const trimmedLineGroupId = requireNonEmpty(lineGroupId, "groupId");
   const trimmedName = normalizeOptionalText(name);
-  const existing = await getChatGroupByLineGroupId(trimmedLineGroupId);
-
-  if (existing) {
-    if (trimmedName && trimmedName !== existing.name) {
-      const { error } = await supabase
-        .from("chat_groups")
-        .update({ name: trimmedName })
-        .eq("id", existing.id);
-      assertNoError(error, "更新群組資料失敗。");
-    }
-    return;
-  }
 
   const insertPayload: { line_group_id: string; name?: string | null } = {
     line_group_id: trimmedLineGroupId,
   };
   if (trimmedName) insertPayload.name = trimmedName;
 
-  const { error } = await supabase.from("chat_groups").insert(insertPayload);
-  assertNoError(error, "建立群組資料失敗。");
+  const { data, error } = await supabase
+    .from("chat_groups")
+    .upsert(insertPayload, { onConflict: "line_group_id" })
+    .select("id, line_group_id, name")
+    .single<ChatGroupRow>();
+
+  assertNoError(error, "建立或更新群組資料失敗。");
+
+  if (!data) {
+    throw new RepositoryError("群組資料不存在。", 500, "DB_ERROR");
+  }
+
+  return data;
 }
 
 export async function upsertLineUser(
@@ -288,12 +287,7 @@ export async function upsertGroupMembership(
   lineUserId: string
 ): Promise<void> {
   const supabase = getSupabaseAdmin();
-  await ensureChatGroup(lineGroupId);
-
-  const group = await getChatGroupByLineGroupId(lineGroupId);
-  if (!group) {
-    throw new RepositoryError("群組資料不存在。", 404, "GROUP_NOT_FOUND");
-  }
+  const group = await ensureChatGroup(lineGroupId);
 
   const user = await getLineUserByLineUserId(lineUserId);
   if (!user) {

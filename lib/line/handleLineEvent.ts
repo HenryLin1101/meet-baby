@@ -1,6 +1,7 @@
 import { messagingApi, webhook } from "@line/bot-sdk";
 import {
   ensureChatGroup,
+  upsertGroupMembership,
   upsertLineUser,
 } from "@/lib/db/repository";
 import { getCommandByName, normalizeText, routeCommand } from "@/lib/line/commandRouter";
@@ -360,6 +361,7 @@ async function syncAddressedLineUser(
     displayName: groupMemberProfile?.displayName ?? "LINE 使用者",
     pictureUrl: groupMemberProfile?.pictureUrl ?? null,
   });
+  await upsertGroupMembership(groupId, userId);
 }
 
 /** 處理已在多輪流程中的下一則訊息；回傳是否已處理。 */
