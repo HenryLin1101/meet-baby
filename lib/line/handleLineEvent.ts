@@ -1,7 +1,6 @@
 import { messagingApi, webhook } from "@line/bot-sdk";
 import {
   ensureChatGroup,
-  upsertGroupMembership,
   upsertLineUser,
 } from "@/lib/db/repository";
 import { getCommandByName, normalizeText, routeCommand } from "@/lib/line/commandRouter";
@@ -340,7 +339,7 @@ async function syncGroupFromJoin(
   await ensureChatGroup(event.source.groupId, groupName);
 }
 
-async function syncAddressedGroupMember(
+async function syncAddressedLineUser(
   client: messagingApi.MessagingApiClient,
   event: LineMessageEvent
 ): Promise<void> {
@@ -349,23 +348,18 @@ async function syncAddressedGroupMember(
   const userId = event.source.userId;
   if (!userId) return;
 
-  const [groupName, groupMemberProfile] = await Promise.all([
-    getGroupName(client, groupId),
-    client
-      .getGroupMemberProfile(groupId, userId)
-      .catch((error) => {
-        console.error("[LINE group member profile]", error);
-        return null;
-      }),
-  ]);
+  const groupMemberProfile = await client
+    .getGroupMemberProfile(groupId, userId)
+    .catch((error) => {
+      console.error("[LINE group member profile]", error);
+      return null;
+    });
 
-  await ensureChatGroup(groupId, groupName);
   await upsertLineUser({
     lineUserId: userId,
     displayName: groupMemberProfile?.displayName ?? "LINE 使用者",
     pictureUrl: groupMemberProfile?.pictureUrl ?? null,
   });
-  await upsertGroupMembership(groupId, userId);
 }
 
 /** 處理已在多輪流程中的下一則訊息；回傳是否已處理。 */
@@ -408,6 +402,14 @@ async function handleTextMessage(
   const conversationKey = buildConversationKey(event);
   const activeState = conversationKey ? getConversationState(conversationKey) : null;
 
+  if (addressed) {
+    try {
+      await syncAddressedLineUser(client, event);
+    } catch (error) {
+      console.error("[LINE sync addressed user]", error);
+    }
+  }
+
   // 全域 cancel：有對話就清掉；沒對話就忽略
   if (CANCEL_KEYWORDS.has(normalizeText(cleanedText))) {
     if (conversationKey && activeState) {
@@ -431,12 +433,6 @@ async function handleTextMessage(
 
   // 新對話：必須有叫到 bot（@ 或別名）才會觸發
   if (!addressed) return;
-
-  try {
-    await syncAddressedGroupMember(client, event);
-  } catch (error) {
-    console.error("[LINE sync addressed member]", error);
-  }
 
   const routed = routeCommand(cleanedText, { lineGroupId });
   if (!routed) {

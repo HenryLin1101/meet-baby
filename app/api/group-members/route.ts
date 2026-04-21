@@ -1,6 +1,8 @@
 import {
+  ensureChatGroup,
   listActiveGroupMembers,
   RepositoryError,
+  upsertGroupMembership,
   upsertLineUser,
 } from "@/lib/db/repository";
 import {
@@ -38,6 +40,8 @@ export async function GET(request: Request) {
       pictureUrl: verifiedUser.pictureUrl,
       statusMessage: verifiedUser.statusMessage,
     });
+    await ensureChatGroup(lineGroupId);
+    await upsertGroupMembership(lineGroupId, verifiedUser.lineUserId);
 
     const members = await listActiveGroupMembers(lineGroupId);
 
