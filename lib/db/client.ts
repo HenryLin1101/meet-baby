@@ -1,48 +1,42 @@
-import { Pool, type PoolClient } from "pg";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 declare global {
-  var __meetBabyPgPool: Pool | undefined;
+  var __meetBabySupabaseAdmin: SupabaseClient | undefined;
 }
 
-function getDatabaseUrl(): string {
-  const databaseUrl = process.env.DATABASE_URL?.trim();
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL 尚未設定。");
+function getSupabaseUrl(): string {
+  const supabaseUrl = process.env.SUPABASE_URL?.trim();
+  if (!supabaseUrl) {
+    throw new Error("SUPABASE_URL 尚未設定。");
   }
-  return databaseUrl;
+  return supabaseUrl;
 }
 
-function shouldUseSsl(databaseUrl: string): boolean {
-  const sslMode = process.env.PGSSLMODE?.trim().toLowerCase();
-  if (sslMode === "disable") return false;
-  if (sslMode === "require") return true;
-  return databaseUrl.includes("supabase.co");
+function getSupabaseServiceRoleKey(): string {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!serviceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY 尚未設定。");
+  }
+  return serviceRoleKey;
 }
 
-export function getDbPool(): Pool {
-  if (globalThis.__meetBabyPgPool) {
-    return globalThis.__meetBabyPgPool;
+export function getSupabaseAdmin(): SupabaseClient {
+  if (globalThis.__meetBabySupabaseAdmin) {
+    return globalThis.__meetBabySupabaseAdmin;
   }
 
-  const databaseUrl = getDatabaseUrl();
-  const pool = new Pool({
-    connectionString: databaseUrl,
-    ssl: shouldUseSsl(databaseUrl) ? { rejectUnauthorized: false } : undefined,
-    max: 10,
-    idleTimeoutMillis: 30_000,
-  });
+  const client = createClient(
+    getSupabaseUrl(),
+    getSupabaseServiceRoleKey(),
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
+    }
+  );
 
-  globalThis.__meetBabyPgPool = pool;
-  return pool;
-}
-
-export async function withDb<T>(
-  callback: (client: PoolClient) => Promise<T>
-): Promise<T> {
-  const client = await getDbPool().connect();
-  try {
-    return await callback(client);
-  } finally {
-    client.release();
-  }
+  globalThis.__meetBabySupabaseAdmin = client;
+  return client;
 }

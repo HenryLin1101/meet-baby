@@ -1,19 +1,19 @@
-import type { PoolClient, QueryResultRow } from "pg";
-import { withDb } from "@/lib/db/client";
+import type { PostgrestError } from "@supabase/supabase-js";
+import { getSupabaseAdmin } from "@/lib/db/client";
 
 type ChatGroupRow = {
   id: number;
-  lineGroupId: string;
+  line_group_id: string;
   name: string | null;
 };
 
 type LineUserRow = {
   id: number;
-  lineUserId: string;
-  displayName: string;
-  pictureUrl: string | null;
-  statusMessage: string | null;
-  languageCode: string | null;
+  line_user_id: string;
+  display_name: string;
+  picture_url: string | null;
+  status_message: string | null;
+  language_code: string | null;
   email: string | null;
 };
 
@@ -34,15 +34,30 @@ export type GroupMember = {
 };
 
 type GroupMemberRow = {
-  userId: number | string;
-  lineUserId: string;
-  displayName: string;
-  pictureUrl: string | null;
+  id: number;
+  line_user_id: string;
+  display_name: string;
+  picture_url: string | null;
 };
 
-type EventAttendeeRow = {
-  userId: number | string;
-  displayName: string;
+type GroupMembershipRow = {
+  id: number;
+  group_id: number;
+  user_id: number;
+  is_active: boolean;
+  left_at: string | null;
+};
+
+type CreatedEventRow = {
+  event_id: number;
+  line_group_id: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  starts_at: string;
+  ends_at: string | null;
+  timezone: string;
+  attendee_display_names: string[];
 };
 
 export type CreateEventWithAttendeesInput = {
@@ -101,236 +116,255 @@ function parseEventDate(value: string, label: string): Date {
   return date;
 }
 
-function toChatGroup(row: QueryResultRow): ChatGroupRow {
+function parseRepositoryErrorMessage(message: string): RepositoryError | null {
+  const separators = [": ", ":"];
+  for (const separator of separators) {
+    const [rawCode, rawMessage] = message.split(separator, 2);
+    if (!rawCode || !rawMessage) continue;
+
+    switch (rawCode) {
+      case "GROUP_NOT_FOUND":
+        return new RepositoryError(rawMessage, 404, rawCode);
+      case "USER_NOT_FOUND":
+        return new RepositoryError(rawMessage, 404, rawCode);
+      case "FORBIDDEN":
+        return new RepositoryError(rawMessage, 403, rawCode);
+      case "INVALID_ATTENDEES":
+      case "INVALID_INPUT":
+        return new RepositoryError(rawMessage, 400, rawCode);
+      default:
+        break;
+    }
+  }
+
+  return null;
+}
+
+function assertNoError(
+  error: PostgrestError | null,
+  fallbackMessage: string
+): void {
+  if (!error) return;
+
+  const parsed = parseRepositoryErrorMessage(error.message);
+  if (parsed) throw parsed;
+
+  throw new RepositoryError(fallbackMessage, 500, error.code || "DB_ERROR");
+}
+
+function toCreatedEvent(row: CreatedEventRow): CreatedEvent {
   return {
-    id: Number(row.id),
-    lineGroupId: String(row.lineGroupId),
-    name: row.name === null ? null : String(row.name),
+    eventId: Number(row.event_id),
+    lineGroupId: String(row.line_group_id),
+    title: String(row.title),
+    description: row.description === null ? null : String(row.description),
+    location: row.location === null ? null : String(row.location),
+    startsAt: new Date(row.starts_at).toISOString(),
+    endsAt: row.ends_at === null ? null : new Date(row.ends_at).toISOString(),
+    timezone: String(row.timezone),
+    attendeeDisplayNames: Array.isArray(row.attendee_display_names)
+      ? row.attendee_display_names.map(String)
+      : [],
   };
-}
-
-function toLineUser(row: QueryResultRow): LineUserRow {
-  return {
-    id: Number(row.id),
-    lineUserId: String(row.lineUserId),
-    displayName: String(row.displayName),
-    pictureUrl: row.pictureUrl === null ? null : String(row.pictureUrl),
-    statusMessage:
-      row.statusMessage === null ? null : String(row.statusMessage),
-    languageCode:
-      row.languageCode === null ? null : String(row.languageCode),
-    email: row.email === null ? null : String(row.email),
-  };
-}
-
-async function ensureChatGroupWithClient(
-  client: PoolClient,
-  lineGroupId: string,
-  name?: string | null
-): Promise<ChatGroupRow> {
-  const result = await client.query(
-    `
-      INSERT INTO chat_groups (line_group_id, name)
-      VALUES ($1, $2)
-      ON CONFLICT (line_group_id)
-      DO UPDATE SET
-        name = COALESCE(EXCLUDED.name, chat_groups.name)
-      RETURNING
-        id,
-        line_group_id AS "lineGroupId",
-        name
-    `,
-    [requireNonEmpty(lineGroupId, "groupId"), normalizeOptionalText(name)]
-  );
-
-  return toChatGroup(result.rows[0]);
-}
-
-async function upsertLineUserWithClient(
-  client: PoolClient,
-  input: LineUserProfileInput
-): Promise<LineUserRow> {
-  const result = await client.query(
-    `
-      INSERT INTO line_users (
-        line_user_id,
-        display_name,
-        picture_url,
-        status_message,
-        language_code,
-        email
-      )
-      VALUES ($1, $2, $3, $4, $5, $6)
-      ON CONFLICT (line_user_id)
-      DO UPDATE SET
-        display_name = EXCLUDED.display_name,
-        picture_url = COALESCE(EXCLUDED.picture_url, line_users.picture_url),
-        status_message = COALESCE(EXCLUDED.status_message, line_users.status_message),
-        language_code = COALESCE(EXCLUDED.language_code, line_users.language_code),
-        email = COALESCE(EXCLUDED.email, line_users.email)
-      RETURNING
-        id,
-        line_user_id AS "lineUserId",
-        display_name AS "displayName",
-        picture_url AS "pictureUrl",
-        status_message AS "statusMessage",
-        language_code AS "languageCode",
-        email
-    `,
-    [
-      requireNonEmpty(input.lineUserId, "lineUserId"),
-      requireNonEmpty(input.displayName, "displayName"),
-      normalizeOptionalText(input.pictureUrl),
-      normalizeOptionalText(input.statusMessage),
-      normalizeOptionalText(input.languageCode),
-      normalizeOptionalText(input.email),
-    ]
-  );
-
-  return toLineUser(result.rows[0]);
 }
 
 async function getChatGroupByLineGroupId(
-  client: PoolClient,
   lineGroupId: string
 ): Promise<ChatGroupRow | null> {
-  const result = await client.query(
-    `
-      SELECT
-        id,
-        line_group_id AS "lineGroupId",
-        name
-      FROM chat_groups
-      WHERE line_group_id = $1
-      LIMIT 1
-    `,
-    [lineGroupId]
-  );
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("chat_groups")
+    .select("id, line_group_id, name")
+    .eq("line_group_id", lineGroupId)
+    .maybeSingle<ChatGroupRow>();
 
-  return result.rows[0] ? toChatGroup(result.rows[0]) : null;
+  assertNoError(error, "讀取群組資料失敗。");
+  return data;
 }
 
 async function getLineUserByLineUserId(
-  client: PoolClient,
   lineUserId: string
 ): Promise<LineUserRow | null> {
-  const result = await client.query(
-    `
-      SELECT
-        id,
-        line_user_id AS "lineUserId",
-        display_name AS "displayName",
-        picture_url AS "pictureUrl",
-        status_message AS "statusMessage",
-        language_code AS "languageCode",
-        email
-      FROM line_users
-      WHERE line_user_id = $1
-      LIMIT 1
-    `,
-    [lineUserId]
-  );
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("line_users")
+    .select(
+      "id, line_user_id, display_name, picture_url, status_message, language_code, email"
+    )
+    .eq("line_user_id", lineUserId)
+    .maybeSingle<LineUserRow>();
 
-  return result.rows[0] ? toLineUser(result.rows[0]) : null;
+  assertNoError(error, "讀取 LINE 使用者資料失敗。");
+  return data;
 }
 
-async function assertActiveMembership(
-  client: PoolClient,
+async function getActiveMembership(
   groupId: number,
-  userId: number,
-  label: string
-): Promise<void> {
-  const result = await client.query(
-    `
-      SELECT 1
-      FROM group_memberships
-      WHERE group_id = $1
-        AND user_id = $2
-        AND is_active = TRUE
-      LIMIT 1
-    `,
-    [groupId, userId]
-  );
+  userId: number
+): Promise<GroupMembershipRow | null> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("group_memberships")
+    .select("id, group_id, user_id, is_active, left_at")
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .maybeSingle<GroupMembershipRow>();
 
-  if (result.rowCount === 0) {
-    throw new RepositoryError(`${label} 不在群組名單內。`, 403, "FORBIDDEN");
-  }
+  assertNoError(error, "讀取群組成員資料失敗。");
+  return data;
 }
 
 export async function ensureChatGroup(
   lineGroupId: string,
   name?: string | null
 ): Promise<void> {
-  await withDb((client) => ensureChatGroupWithClient(client, lineGroupId, name));
+  const supabase = getSupabaseAdmin();
+  const trimmedLineGroupId = requireNonEmpty(lineGroupId, "groupId");
+  const trimmedName = normalizeOptionalText(name);
+  const existing = await getChatGroupByLineGroupId(trimmedLineGroupId);
+
+  if (existing) {
+    if (trimmedName && trimmedName !== existing.name) {
+      const { error } = await supabase
+        .from("chat_groups")
+        .update({ name: trimmedName })
+        .eq("id", existing.id);
+      assertNoError(error, "更新群組資料失敗。");
+    }
+    return;
+  }
+
+  const insertPayload: { line_group_id: string; name?: string | null } = {
+    line_group_id: trimmedLineGroupId,
+  };
+  if (trimmedName) insertPayload.name = trimmedName;
+
+  const { error } = await supabase.from("chat_groups").insert(insertPayload);
+  assertNoError(error, "建立群組資料失敗。");
 }
 
 export async function upsertLineUser(
   input: LineUserProfileInput
 ): Promise<void> {
-  await withDb((client) => upsertLineUserWithClient(client, input));
+  const supabase = getSupabaseAdmin();
+  const lineUserId = requireNonEmpty(input.lineUserId, "lineUserId");
+  const displayName = requireNonEmpty(input.displayName, "displayName");
+  const existing = await getLineUserByLineUserId(lineUserId);
+
+  if (existing) {
+    const { error } = await supabase
+      .from("line_users")
+      .update({
+        display_name: displayName,
+        picture_url:
+          normalizeOptionalText(input.pictureUrl) ?? existing.picture_url,
+        status_message:
+          normalizeOptionalText(input.statusMessage) ?? existing.status_message,
+        language_code:
+          normalizeOptionalText(input.languageCode) ?? existing.language_code,
+        email: normalizeOptionalText(input.email) ?? existing.email,
+      })
+      .eq("id", existing.id);
+
+    assertNoError(error, "更新 LINE 使用者資料失敗。");
+    return;
+  }
+
+  const { error } = await supabase.from("line_users").insert({
+    line_user_id: lineUserId,
+    display_name: displayName,
+    picture_url: normalizeOptionalText(input.pictureUrl),
+    status_message: normalizeOptionalText(input.statusMessage),
+    language_code: normalizeOptionalText(input.languageCode),
+    email: normalizeOptionalText(input.email),
+  });
+
+  assertNoError(error, "建立 LINE 使用者資料失敗。");
 }
 
 export async function upsertGroupMembership(
   lineGroupId: string,
   lineUserId: string
 ): Promise<void> {
-  await withDb(async (client) => {
-    const group = await ensureChatGroupWithClient(client, lineGroupId);
-    const user = await getLineUserByLineUserId(client, lineUserId);
+  const supabase = getSupabaseAdmin();
+  await ensureChatGroup(lineGroupId);
 
-    if (!user) {
-      throw new RepositoryError(
-        "找不到對應的 LINE 使用者資料。",
-        404,
-        "USER_NOT_FOUND"
-      );
-    }
+  const group = await getChatGroupByLineGroupId(lineGroupId);
+  if (!group) {
+    throw new RepositoryError("群組資料不存在。", 404, "GROUP_NOT_FOUND");
+  }
 
-    await client.query(
-      `
-        INSERT INTO group_memberships (group_id, user_id, joined_at, left_at, is_active)
-        VALUES ($1, $2, NOW(), NULL, TRUE)
-        ON CONFLICT (group_id, user_id)
-        DO UPDATE SET
-          is_active = TRUE,
-          left_at = NULL
-      `,
-      [group.id, user.id]
+  const user = await getLineUserByLineUserId(lineUserId);
+  if (!user) {
+    throw new RepositoryError(
+      "找不到對應的 LINE 使用者資料。",
+      404,
+      "USER_NOT_FOUND"
     );
-  });
+  }
+
+  const membership = await getActiveMembership(group.id, user.id);
+  if (membership) return;
+
+  const { error } = await supabase.from("group_memberships").upsert(
+    {
+      group_id: group.id,
+      user_id: user.id,
+      joined_at: new Date().toISOString(),
+      left_at: null,
+      is_active: true,
+    },
+    {
+      onConflict: "group_id,user_id",
+    }
+  );
+
+  assertNoError(error, "建立群組成員資料失敗。");
 }
 
 export async function listActiveGroupMembers(
   lineGroupId: string
 ): Promise<GroupMember[]> {
-  return withDb(async (client) => {
-    const group = await getChatGroupByLineGroupId(client, lineGroupId);
-    if (!group) {
-      throw new RepositoryError("群組資料不存在。", 404, "GROUP_NOT_FOUND");
-    }
+  const supabase = getSupabaseAdmin();
+  const group = await getChatGroupByLineGroupId(lineGroupId);
+  if (!group) {
+    throw new RepositoryError("群組資料不存在。", 404, "GROUP_NOT_FOUND");
+  }
 
-    const result = await client.query<GroupMemberRow>(
-      `
-        SELECT
-          u.id AS "userId",
-          u.line_user_id AS "lineUserId",
-          u.display_name AS "displayName",
-          u.picture_url AS "pictureUrl"
-        FROM group_memberships gm
-        INNER JOIN line_users u ON u.id = gm.user_id
-        WHERE gm.group_id = $1
-          AND gm.is_active = TRUE
-        ORDER BY u.display_name ASC, u.id ASC
-      `,
-      [group.id]
-    );
+  const { data: memberships, error: membershipError } = await supabase
+    .from("group_memberships")
+    .select("user_id")
+    .eq("group_id", group.id)
+    .eq("is_active", true);
 
-    return result.rows.map((row: GroupMemberRow) => ({
-      userId: Number(row.userId),
-      lineUserId: String(row.lineUserId),
-      displayName: String(row.displayName),
-      pictureUrl: row.pictureUrl === null ? null : String(row.pictureUrl),
-    }));
+  assertNoError(membershipError, "讀取群組成員資料失敗。");
+
+  const userIds = (memberships ?? [])
+    .map((row) => Number(row.user_id))
+    .filter(Number.isFinite);
+
+  if (userIds.length === 0) {
+    return [];
+  }
+
+  const { data: users, error: userError } = await supabase
+    .from("line_users")
+    .select("id, line_user_id, display_name, picture_url")
+    .in("id", userIds)
+    .order("display_name", { ascending: true })
+    .order("id", { ascending: true });
+
+  assertNoError(userError, "讀取 LINE 使用者清單失敗。");
+
+  return (users ?? []).map((row) => {
+    const user = row as GroupMemberRow;
+    return {
+      userId: Number(user.id),
+      lineUserId: String(user.line_user_id),
+      displayName: String(user.display_name),
+      pictureUrl: user.picture_url === null ? null : String(user.picture_url),
+    };
   });
 }
 
@@ -359,110 +393,26 @@ export async function createEventWithAttendees(
     throw new RepositoryError("請至少選擇一位參與者。", 400, "INVALID_INPUT");
   }
 
-  return withDb(async (client) => {
-    await client.query("BEGIN");
-    try {
-      const group = await getChatGroupByLineGroupId(client, lineGroupId);
-      if (!group) {
-        throw new RepositoryError("群組資料不存在。", 404, "GROUP_NOT_FOUND");
-      }
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .rpc("create_event_with_attendees", {
+      p_line_group_id: lineGroupId,
+      p_created_by_line_user_id: createdByLineUserId,
+      p_title: title,
+      p_description: description,
+      p_location: location,
+      p_starts_at: startsAt.toISOString(),
+      p_ends_at: endsAt?.toISOString() ?? null,
+      p_timezone: timezone,
+      p_attendee_user_ids: attendeeUserIds,
+    })
+    .single<CreatedEventRow>();
 
-      const creator = await getLineUserByLineUserId(client, createdByLineUserId);
-      if (!creator) {
-        throw new RepositoryError("建立者尚未同步到資料庫。", 404, "USER_NOT_FOUND");
-      }
+  assertNoError(error, "建立活動失敗。");
 
-      await assertActiveMembership(client, group.id, creator.id, "建立者");
+  if (!data) {
+    throw new RepositoryError("建立活動失敗。", 500, "DB_ERROR");
+  }
 
-      const attendeeResult = await client.query<EventAttendeeRow>(
-        `
-          SELECT
-            u.id AS "userId",
-            u.display_name AS "displayName"
-          FROM group_memberships gm
-          INNER JOIN line_users u ON u.id = gm.user_id
-          WHERE gm.group_id = $1
-            AND gm.is_active = TRUE
-            AND gm.user_id = ANY($2::bigint[])
-        `,
-        [group.id, attendeeUserIds]
-      );
-
-      if (attendeeResult.rowCount !== attendeeUserIds.length) {
-        throw new RepositoryError(
-          "部分參與者不在群組有效名單內。",
-          400,
-          "INVALID_ATTENDEES"
-        );
-      }
-
-      const eventResult = await client.query(
-        `
-          INSERT INTO events (
-            group_id,
-            created_by_user_id,
-            title,
-            description,
-            location,
-            starts_at,
-            ends_at,
-            timezone
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          RETURNING
-            id,
-            title,
-            description,
-            location,
-            starts_at AS "startsAt",
-            ends_at AS "endsAt",
-            timezone
-        `,
-        [
-          group.id,
-          creator.id,
-          title,
-          description,
-          location,
-          startsAt.toISOString(),
-          endsAt?.toISOString() ?? null,
-          timezone,
-        ]
-      );
-
-      const eventRow = eventResult.rows[0];
-      const eventId = Number(eventRow.id);
-
-      await client.query(
-        `
-          INSERT INTO event_attendees (event_id, user_id)
-          SELECT $1, UNNEST($2::bigint[])
-        `,
-        [eventId, attendeeUserIds]
-      );
-
-      await client.query("COMMIT");
-
-      return {
-        eventId,
-        lineGroupId,
-        title: String(eventRow.title),
-        description:
-          eventRow.description === null ? null : String(eventRow.description),
-        location: eventRow.location === null ? null : String(eventRow.location),
-        startsAt: new Date(String(eventRow.startsAt)).toISOString(),
-        endsAt:
-          eventRow.endsAt === null
-            ? null
-            : new Date(String(eventRow.endsAt)).toISOString(),
-        timezone: String(eventRow.timezone),
-        attendeeDisplayNames: attendeeResult.rows.map((row: EventAttendeeRow) =>
-          String(row.displayName)
-        ),
-      };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    }
-  });
+  return toCreatedEvent(data);
 }

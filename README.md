@@ -20,6 +20,20 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Environment Variables
+
+Create a local env file and configure:
+
+```bash
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+LINE_CHANNEL_ACCESS_TOKEN=
+LINE_CHANNEL_SECRET=
+NEXT_PUBLIC_LIFF_ID=
+```
+
+`SUPABASE_SERVICE_ROLE_KEY` must stay on the server only. Do not expose it to the browser.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
