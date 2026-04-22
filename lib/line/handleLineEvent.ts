@@ -29,7 +29,7 @@ type GroupMessageEvent = LineMessageEvent & {
 };
 
 const WELCOME_ON_FOLLOW = "歡迎加入好友！有問題隨時傳訊息給我。";
-const WELCOME_ON_JOIN = "大家好！我已加入此聊天室，請多指教。";
+const WELCOME_ON_JOIN = "大家好！想要預約會議的話所以參與人都要先標註我一下喔！";
 const COMMAND_NOT_FOUND = "我目前看不懂這個指令，請輸入 /help。";
 
 
@@ -66,7 +66,7 @@ function getLineGroupIdFromSource(source?: webhook.Source): string | undefined {
 function buildFallbackFlexMessage(lineGroupId?: string): messagingApi.FlexMessage {
   return {
     type: "flex",
-    altText: COMMAND_NOT_FOUND,
+    altText: "顯示選單",
     contents: {
       "type": "bubble",
       "size": "mega",
