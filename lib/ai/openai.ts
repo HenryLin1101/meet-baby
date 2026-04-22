@@ -35,6 +35,7 @@ export async function summarizeMeetingTranscript(input: {
 }): Promise<MeetingSummary> {
   const apiKey = getOpenAIApiKeyOrThrow();
   const model = getOpenAIModel();
+  const today = new Date().toISOString().slice(0, 10);
 
   const transcript = input.transcript.trim();
   if (!transcript) {
@@ -88,7 +89,13 @@ export async function summarizeMeetingTranscript(input: {
             input.title?.trim()
               ? `會議標題：${input.title.trim()}`
               : "會議標題：未提供",
-            "請根據逐字稿產出：會議主軸（topic）、重點摘要（bullets 5-10 點）、決策（decisions）、行動項（actionItems）。",
+            `今天日期：${today}（若逐字稿出現相對時間，如「明天 / 下週一」，請以今天為基準換算）`,
+            [
+              "請根據逐字稿產出：會議主軸（topic）、重點摘要（bullets 5-10 點）、決策（decisions）、待辦事項（actionItems）。",
+              "待辦事項(actionItems) 是會後要做的事：誰(owner)要做什麼(item)、截止日(due)。",
+              "重要規則：若逐字稿未明確提到截止日，due 請回傳空字串，不要推測或編造年份/日期。",
+              "owner 若未明確提到，請回傳空字串。",
+            ].join("\n"),
             "逐字稿如下：",
             transcript,
           ].join("\n"),

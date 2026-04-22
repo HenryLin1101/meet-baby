@@ -37,16 +37,25 @@ export class SummaryCommand extends CommandHandlerBase {
 
     const credential = await getGoogleCredentialByLineUserId(context.lineUserId);
     if (!credential) {
+      // Create a pending summary record first, so OAuth callback can resume automatically.
+      const created = await createEventSummary({
+        lineGroupId: context.lineGroupId,
+        requestedByLineUserId: context.lineUserId,
+        sourceDriveUrl: parsed.normalizedUrl,
+        sourceDriveFileId: parsed.fileId,
+      });
+
       const consentUrl = new URL("/api/google/oauth/consent", getAppBaseUrlOrThrow());
       consentUrl.searchParams.set("lineUserId", context.lineUserId);
-      consentUrl.searchParams.set("groupId", context.lineGroupId);
+      consentUrl.searchParams.set("summaryId", String(created.summaryId));
 
       return {
         reply: [
           "我需要取得你的 Google Drive 權限才能讀取這份逐字稿。",
           "請用 Safari/Chrome 開啟下方連結完成授權（LINE 內建瀏覽器會被 Google 擋）。",
           consentUrl.toString(),
-          "授權完成後，請回到群組再把檔案連結貼一次給我。",
+          "授權完成後，我會自動開始整理並把總結回傳到群組，不需要再貼一次連結。",
+          `任務編號：${created.summaryId}`,
         ].join("\n"),
       };
     }

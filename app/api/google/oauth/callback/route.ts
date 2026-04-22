@@ -1,8 +1,10 @@
 import {
   consumeGoogleOAuthState,
+  setEventSummaryQStashMessageId,
   upsertGoogleCredentialForLineUser,
 } from "@/lib/db/repository";
 import { exchangeCodeForTokens } from "@/lib/google/oauth";
+import { publishSummaryJob } from "@/lib/summaries/qstash";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,13 +56,26 @@ export async function GET(request: Request) {
       scopes: tokens.scope ?? null,
     });
 
+    // Auto-start summary job if this OAuth was triggered by a summary request.
+    if (consumed.summaryId) {
+      try {
+        const job = await publishSummaryJob({ summaryId: consumed.summaryId });
+        await setEventSummaryQStashMessageId({
+          summaryId: consumed.summaryId,
+          messageId: job.messageId,
+        });
+      } catch (jobErr) {
+        console.error("[google-oauth.callback.publish-summary]", jobErr);
+      }
+    }
+
     const redirectUrl = consumed.redirectUrl?.trim() || "";
     if (redirectUrl) {
       return html(
         [
           "<h2>授權成功</h2>",
           "<p>正在帶你回到 LINE…（若未自動跳轉，請點下方按鈕）</p>",
-          `<p><a href="${escapeHtml(redirectUrl)}">回到 LINE / LIFF</a></p>`,
+          `<p><a href="${escapeHtml(redirectUrl)}">回到 LINE</a></p>`,
           "<script>",
           `window.setTimeout(function(){ window.location.href = ${JSON.stringify(
             redirectUrl

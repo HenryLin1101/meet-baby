@@ -1,7 +1,5 @@
 import { createGoogleOAuthState } from "@/lib/db/repository";
 import { buildGoogleOAuthConsentUrl, GOOGLE_DRIVE_READONLY_SCOPE } from "@/lib/google/oauth";
-import { buildLiffUrl } from "@/lib/liff/utils";
-import { getAppBaseUrlOrThrow } from "@/lib/qstash/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +23,7 @@ function redirect(url: string) {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const lineUserId = url.searchParams.get("lineUserId")?.trim();
-  const groupId = url.searchParams.get("groupId")?.trim() ?? null;
+  const summaryId = url.searchParams.get("summaryId")?.trim() ?? null;
 
   if (!lineUserId) {
     return new Response("Missing lineUserId", { status: 400 });
@@ -34,16 +32,15 @@ export async function GET(request: Request) {
   const state = randomState();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-  // Try to send user back to LIFF after OAuth finishes.
-  const redirectUrl =
-    buildLiffUrl("/liff/dashboard", groupId ? { groupId } : undefined) ??
-    new URL("/liff/dashboard", getAppBaseUrlOrThrow()).toString();
+  // Send user back to LINE app (chat list / last chat).
+  const redirectUrl = "line://nv/chat";
 
   await createGoogleOAuthState({
     lineUserId,
     state,
     expiresAt,
     redirectUrl,
+    summaryId: summaryId ? Number(summaryId) : null,
   });
 
   const authUrl = buildGoogleOAuthConsentUrl({

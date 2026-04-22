@@ -191,6 +191,7 @@ export type CreateGoogleOAuthStateInput = {
   state: string;
   expiresAt: string;
   redirectUrl?: string | null;
+  summaryId?: number | null;
 };
 
 export type CreatedSummary = {
@@ -357,6 +358,7 @@ type GoogleOAuthStateRow = {
   expires_at: string;
   used_at: string | null;
   redirect_url?: string | null;
+  summary_id?: number | null;
 };
 
 type EventSummaryRow = {
@@ -895,6 +897,8 @@ export async function createGoogleOAuthState(
   const state = requireNonEmpty(input.state, "state");
   const expiresAt = parseEventDate(input.expiresAt, "expiresAt");
   const redirectUrl = normalizeOptionalText(input.redirectUrl);
+  const summaryId =
+    typeof input.summaryId === "number" ? requireFiniteNumber(input.summaryId, "summaryId") : null;
 
   const user = await getLineUserByLineUserId(lineUserId);
   if (!user) {
@@ -906,19 +910,20 @@ export async function createGoogleOAuthState(
     user_id: user.id,
     expires_at: expiresAt.toISOString(),
     redirect_url: redirectUrl,
+    summary_id: summaryId,
   });
   assertNoError(error, "建立 Google OAuth state 失敗。");
 }
 
 export async function consumeGoogleOAuthState(
   state: string
-): Promise<{ lineUserId: string; redirectUrl: string | null } | null> {
+): Promise<{ lineUserId: string; redirectUrl: string | null; summaryId: number | null } | null> {
   const supabase = getSupabaseAdmin();
   const normalizedState = requireNonEmpty(state, "state");
 
   const { data, error } = await supabase
     .from("google_oauth_states")
-    .select("state, user_id, expires_at, used_at, redirect_url")
+    .select("state, user_id, expires_at, used_at, redirect_url, summary_id")
     .eq("state", normalizedState)
     .maybeSingle<GoogleOAuthStateRow>();
   assertNoError(error, "讀取 Google OAuth state 失敗。");
@@ -951,6 +956,10 @@ export async function consumeGoogleOAuthState(
       data.redirect_url === null || typeof data.redirect_url === "undefined"
         ? null
         : String(data.redirect_url),
+    summaryId:
+      typeof data.summary_id === "number" && Number.isFinite(Number(data.summary_id))
+        ? Number(data.summary_id)
+        : null,
   };
 }
 
