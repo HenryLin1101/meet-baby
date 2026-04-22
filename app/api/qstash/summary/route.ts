@@ -1,4 +1,3 @@
-import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
 import {
   claimEventSummary,
   getEventSummaryProcessingDetails,
@@ -130,5 +129,8 @@ async function handleSummaryJob(request: Request) {
   }
 }
 
-export const POST = verifySignatureAppRouter(handleSummaryJob);
+export async function POST(request: Request) {
+  const { verifySignatureAppRouter } = await import("@upstash/qstash/nextjs");
+  return verifySignatureAppRouter(handleSummaryJob)(request);
+}
 

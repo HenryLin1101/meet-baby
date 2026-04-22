@@ -36,6 +36,14 @@ export async function publishSummaryJob(
     delay: 1,
   });
 
-  return { messageId: response.messageId };
+  const messageId =
+    typeof (response as { messageId?: unknown }).messageId === "string"
+      ? String((response as { messageId: string }).messageId)
+      : null;
+  if (!messageId) {
+    throw new Error("QStash 回傳缺少 messageId，無法追蹤摘要任務。");
+  }
+
+  return { messageId };
 }
 

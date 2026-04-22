@@ -1,4 +1,3 @@
-import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
 import {
   claimEventReminder,
   getEventReminderDetails,
@@ -87,4 +86,7 @@ async function handleReminderRequest(request: Request) {
   }
 }
 
-export const POST = verifySignatureAppRouter(handleReminderRequest);
+export async function POST(request: Request) {
+  const { verifySignatureAppRouter } = await import("@upstash/qstash/nextjs");
+  return verifySignatureAppRouter(handleReminderRequest)(request);
+}
