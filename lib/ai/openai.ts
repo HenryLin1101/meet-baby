@@ -1,5 +1,13 @@
 type OpenAIResponse = {
   output_text?: string;
+  output?: Array<{
+    type?: string;
+    content?: Array<{
+      type?: string;
+      text?: string;
+    }>;
+  }>;
+  error?: { message?: string };
 };
 
 function getOpenAIApiKeyOrThrow(): string {
@@ -97,16 +105,14 @@ export async function summarizeMeetingTranscript(input: {
     cache: "no-store",
   });
 
-  const json = (await response.json()) as OpenAIResponse & {
-    error?: { message?: string };
-  };
+  const json = (await response.json()) as OpenAIResponse;
   if (!response.ok) {
     throw new Error(json.error?.message ?? "OpenAI API 呼叫失敗。");
   }
 
-  const text = json.output_text?.trim();
+  const text = extractResponseText(json)?.trim();
   if (!text) {
-    throw new Error("OpenAI 回傳格式異常（缺少 output_text）。");
+    throw new Error("OpenAI 回傳格式異常（缺少文字輸出）。");
   }
 
   let parsed: unknown;
@@ -120,6 +126,28 @@ export async function summarizeMeetingTranscript(input: {
     throw new Error("OpenAI 回傳 JSON schema 不符合預期。");
   }
   return parsed;
+}
+
+function extractResponseText(response: OpenAIResponse): string | null {
+  const direct = response.output_text?.trim();
+  if (direct) return direct;
+
+  const output = response.output ?? [];
+  for (const item of output) {
+    const contents = item?.content ?? [];
+    for (const content of contents) {
+      if (content?.type === "output_text" && typeof content.text === "string") {
+        const text = content.text.trim();
+        if (text) return text;
+      }
+      // Some variants may not label type; keep a safe fallback.
+      if (!content?.type && typeof content?.text === "string") {
+        const text = content.text.trim();
+        if (text) return text;
+      }
+    }
+  }
+  return null;
 }
 
 function isMeetingSummary(value: unknown): value is MeetingSummary {
