@@ -206,7 +206,7 @@ export function formatMeetingSummaryForLine(input: {
 
   if (input.summary.actionItems.length > 0) {
     lines.push("");
-    lines.push("行動項：");
+    lines.push("待辦事項：");
     input.summary.actionItems.slice(0, 10).forEach((a, idx) => {
       const owner = a.owner.trim();
       const due = a.due.trim();

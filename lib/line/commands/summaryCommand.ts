@@ -55,7 +55,7 @@ export class SummaryCommand extends CommandHandlerBase {
           "請用 Safari/Chrome 開啟下方連結完成授權（LINE 內建瀏覽器會被 Google 擋）。",
           consentUrl.toString(),
           "授權完成後，我會自動開始整理並把總結回傳到群組，不需要再貼一次連結。",
-          `任務編號：${created.summaryId}`,
+          
         ].join("\n"),
       };
     }
@@ -76,7 +76,6 @@ export class SummaryCommand extends CommandHandlerBase {
     return {
       reply: [
         "已收到，我正在整理這場會議的主軸與總結。",
-        `任務編號：${created.summaryId}`,
       ].join("\n"),
     };
   }
