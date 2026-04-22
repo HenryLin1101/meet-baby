@@ -487,12 +487,6 @@ const labelStyle: CSSProperties = {
   color: "var(--muted)",
 };
 
-const helperTextStyle: CSSProperties = {
-  fontSize: "0.8rem",
-  color: "var(--muted)",
-  lineHeight: 1.5,
-};
-
 const requiredStyle: CSSProperties = {
   color: "var(--accent)",
 };

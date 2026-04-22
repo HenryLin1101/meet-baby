@@ -464,19 +464,6 @@ const subtitleStyle: CSSProperties = {
   fontSize: "0.92rem",
 };
 
-const heroBadgeStyle: CSSProperties = {
-  display: "inline-block",
-  marginBottom: "0.6rem",
-  padding: "0.28rem 0.72rem",
-  borderRadius: "999px",
-  fontSize: "0.72rem",
-  fontWeight: 700,
-  letterSpacing: "0.08em",
-  color: "#d8f8ff",
-  background: "rgba(158, 238, 255, 0.12)",
-  border: "1px solid rgba(158, 238, 255, 0.2)",
-};
-
 const badgeStyle: CSSProperties = {
   border: "1px solid rgba(255, 255, 255, 0.16)",
   borderRadius: "999px",

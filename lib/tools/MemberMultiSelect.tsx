@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import Image from "next/image";
 
 export type MemberMultiSelectMember = {
   userId: number;
@@ -58,10 +59,13 @@ function MemberAvatar({
 
   if (pictureUrl) {
     return (
-      <img
+      <Image
         src={pictureUrl}
         alt={displayName}
+        width={size}
+        height={size}
         style={{ ...avatarStyle, objectFit: "cover" }}
+        unoptimized
       />
     );
   }
@@ -79,12 +83,6 @@ export default function MemberMultiSelect({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
-
-  useEffect(() => {
-    if (disabled) {
-      setIsOpen(false);
-    }
-  }, [disabled]);
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
@@ -145,7 +143,7 @@ export default function MemberMultiSelect({
           if (!disabled) setIsOpen((open) => !open);
         }}
         disabled={disabled}
-        aria-expanded={isOpen}
+        aria-expanded={isOpen && !disabled}
       >
         <div style={{ flex: 1 }}>
           <div style={triggerLabelStyle}>選擇參與者</div>
@@ -179,7 +177,7 @@ export default function MemberMultiSelect({
         </div>
       )}
 
-      {isOpen && (
+      {isOpen && !disabled && (
         <div
           style={{
             ...panelStyle,

@@ -179,6 +179,31 @@ export type EventReminderScheduleInput = {
   scheduledAt: string;
 };
 
+export type GoogleCredential = {
+  userId: number;
+  refreshToken: string;
+  scopes: string | null;
+  revokedAt: string | null;
+};
+
+export type CreateGoogleOAuthStateInput = {
+  lineUserId: string;
+  state: string;
+  expiresAt: string;
+};
+
+export type CreatedSummary = {
+  summaryId: number;
+};
+
+export type SummaryProcessingDetails = {
+  summaryId: number;
+  lineGroupId: string;
+  requestedByLineUserId: string;
+  sourceDriveUrl: string;
+  sourceDriveFileId: string;
+};
+
 export class RepositoryError extends Error {
   constructor(
     message: string,
@@ -209,6 +234,14 @@ function parseEventDate(value: string, label: string): Date {
     throw new RepositoryError(`${label} 格式不正確。`, 400, "INVALID_INPUT");
   }
   return date;
+}
+
+function requireFiniteNumber(value: number, label: string): number {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized)) {
+    throw new RepositoryError(`${label} 格式不正確。`, 400, "INVALID_INPUT");
+  }
+  return normalized;
 }
 
 function parseRepositoryErrorMessage(message: string): RepositoryError | null {
@@ -309,6 +342,33 @@ async function getActiveMembership(
   assertNoError(error, "讀取群組成員資料失敗。");
   return data;
 }
+
+type GoogleCredentialRow = {
+  user_id: number;
+  refresh_token: string;
+  scopes: string | null;
+  revoked_at: string | null;
+};
+
+type GoogleOAuthStateRow = {
+  state: string;
+  user_id: number;
+  expires_at: string;
+  used_at: string | null;
+};
+
+type EventSummaryRow = {
+  id: number;
+  group_id: number;
+  requested_by_user_id: number;
+  source_drive_url: string;
+  source_drive_file_id: string;
+  status: string;
+  processing_at: string | null;
+  completed_at: string | null;
+  last_error: string | null;
+  qstash_message_id: string | null;
+};
 
 export async function ensureChatGroup(
   lineGroupId: string,
@@ -823,4 +883,297 @@ export async function createEventWithAttendees(
   }
 
   return toCreatedEvent(data);
+}
+
+export async function createGoogleOAuthState(
+  input: CreateGoogleOAuthStateInput
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const lineUserId = requireNonEmpty(input.lineUserId, "lineUserId");
+  const state = requireNonEmpty(input.state, "state");
+  const expiresAt = parseEventDate(input.expiresAt, "expiresAt");
+
+  const user = await getLineUserByLineUserId(lineUserId);
+  if (!user) {
+    throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
+  }
+
+  const { error } = await supabase.from("google_oauth_states").insert({
+    state,
+    user_id: user.id,
+    expires_at: expiresAt.toISOString(),
+  });
+  assertNoError(error, "建立 Google OAuth state 失敗。");
+}
+
+export async function consumeGoogleOAuthState(
+  state: string
+): Promise<{ lineUserId: string } | null> {
+  const supabase = getSupabaseAdmin();
+  const normalizedState = requireNonEmpty(state, "state");
+
+  const { data, error } = await supabase
+    .from("google_oauth_states")
+    .select("state, user_id, expires_at, used_at")
+    .eq("state", normalizedState)
+    .maybeSingle<GoogleOAuthStateRow>();
+  assertNoError(error, "讀取 Google OAuth state 失敗。");
+
+  if (!data) return null;
+  if (data.used_at) return null;
+  const expiresAt = new Date(data.expires_at);
+  if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+    return null;
+  }
+
+  const { error: updateError } = await supabase
+    .from("google_oauth_states")
+    .update({ used_at: new Date().toISOString() })
+    .eq("state", normalizedState)
+    .is("used_at", null);
+  assertNoError(updateError, "更新 Google OAuth state 失敗。");
+
+  const { data: user, error: userError } = await supabase
+    .from("line_users")
+    .select("line_user_id")
+    .eq("id", Number(data.user_id))
+    .maybeSingle<{ line_user_id: string }>();
+  assertNoError(userError, "讀取 LINE 使用者資料失敗。");
+  if (!user) return null;
+
+  return { lineUserId: String(user.line_user_id) };
+}
+
+export async function upsertGoogleCredentialForLineUser(
+  input: {
+    lineUserId: string;
+    refreshToken: string;
+    scopes?: string | null;
+  }
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const lineUserId = requireNonEmpty(input.lineUserId, "lineUserId");
+  const refreshToken = requireNonEmpty(input.refreshToken, "refreshToken");
+  const user = await getLineUserByLineUserId(lineUserId);
+  if (!user) {
+    throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
+  }
+
+  const { error } = await supabase.from("google_credentials").upsert(
+    {
+      user_id: user.id,
+      refresh_token: refreshToken,
+      scopes: normalizeOptionalText(input.scopes),
+      revoked_at: null,
+    },
+    { onConflict: "user_id" }
+  );
+  assertNoError(error, "儲存 Google 憑證失敗。");
+}
+
+export async function getGoogleCredentialByLineUserId(
+  lineUserId: string
+): Promise<GoogleCredential | null> {
+  const supabase = getSupabaseAdmin();
+  const normalizedLineUserId = requireNonEmpty(lineUserId, "lineUserId");
+  const user = await getLineUserByLineUserId(normalizedLineUserId);
+  if (!user) return null;
+
+  const { data, error } = await supabase
+    .from("google_credentials")
+    .select("user_id, refresh_token, scopes, revoked_at")
+    .eq("user_id", user.id)
+    .is("revoked_at", null)
+    .maybeSingle<GoogleCredentialRow>();
+  assertNoError(error, "讀取 Google 憑證失敗。");
+
+  if (!data) return null;
+
+  return {
+    userId: Number(data.user_id),
+    refreshToken: String(data.refresh_token),
+    scopes: data.scopes === null ? null : String(data.scopes),
+    revokedAt: data.revoked_at === null ? null : String(data.revoked_at),
+  };
+}
+
+export async function createEventSummary(
+  input: {
+    lineGroupId: string;
+    requestedByLineUserId: string;
+    sourceDriveUrl: string;
+    sourceDriveFileId: string;
+  }
+): Promise<CreatedSummary> {
+  const supabase = getSupabaseAdmin();
+  const lineGroupId = requireNonEmpty(input.lineGroupId, "lineGroupId");
+  const requestedByLineUserId = requireNonEmpty(
+    input.requestedByLineUserId,
+    "requestedByLineUserId"
+  );
+  const sourceDriveUrl = requireNonEmpty(input.sourceDriveUrl, "sourceDriveUrl");
+  const sourceDriveFileId = requireNonEmpty(
+    input.sourceDriveFileId,
+    "sourceDriveFileId"
+  );
+
+  const group = await getChatGroupByLineGroupId(lineGroupId);
+  if (!group) {
+    throw new RepositoryError("群組資料不存在。", 404, "GROUP_NOT_FOUND");
+  }
+  const user = await getLineUserByLineUserId(requestedByLineUserId);
+  if (!user) {
+    throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
+  }
+
+  const membership = await getActiveMembership(group.id, user.id);
+  if (!membership) {
+    throw new RepositoryError("你不是此群組的有效成員。", 403, "FORBIDDEN");
+  }
+
+  const { data, error } = await supabase
+    .from("event_summaries")
+    .insert({
+      group_id: group.id,
+      requested_by_user_id: user.id,
+      source_drive_url: sourceDriveUrl,
+      source_drive_file_id: sourceDriveFileId,
+      status: "pending",
+      processing_at: null,
+      completed_at: null,
+      last_error: null,
+    })
+    .select("id")
+    .single<{ id: number }>();
+
+  assertNoError(error, "建立會議總結任務失敗。");
+  if (!data) {
+    throw new RepositoryError("建立會議總結任務失敗。", 500, "DB_ERROR");
+  }
+  return { summaryId: Number(data.id) };
+}
+
+export async function setEventSummaryQStashMessageId(
+  input: { summaryId: number; messageId: string }
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const summaryId = requireFiniteNumber(input.summaryId, "summaryId");
+  const messageId = requireNonEmpty(input.messageId, "messageId");
+
+  const { error } = await supabase
+    .from("event_summaries")
+    .update({ qstash_message_id: messageId })
+    .eq("id", summaryId);
+  assertNoError(error, "儲存總結排程資訊失敗。");
+}
+
+export async function claimEventSummary(summaryId: number): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  const normalizedSummaryId = requireFiniteNumber(summaryId, "summaryId");
+
+  const { data, error } = await supabase
+    .from("event_summaries")
+    .update({
+      status: "processing",
+      processing_at: new Date().toISOString(),
+      last_error: null,
+    })
+    .eq("id", normalizedSummaryId)
+    .eq("status", "pending")
+    .is("processing_at", null)
+    .select("id")
+    .maybeSingle<{ id: number }>();
+
+  assertNoError(error, "鎖定會議總結任務失敗。");
+  return Boolean(data);
+}
+
+export async function getEventSummaryProcessingDetails(
+  summaryId: number
+): Promise<SummaryProcessingDetails | null> {
+  const supabase = getSupabaseAdmin();
+  const normalizedSummaryId = requireFiniteNumber(summaryId, "summaryId");
+
+  const { data: summary, error: summaryError } = await supabase
+    .from("event_summaries")
+    .select(
+      "id, group_id, requested_by_user_id, source_drive_url, source_drive_file_id, status, processing_at, completed_at, last_error, qstash_message_id"
+    )
+    .eq("id", normalizedSummaryId)
+    .maybeSingle<EventSummaryRow>();
+  assertNoError(summaryError, "讀取會議總結任務失敗。");
+  if (!summary) return null;
+
+  const { data: group, error: groupError } = await supabase
+    .from("chat_groups")
+    .select("id, line_group_id, name, picture_url")
+    .eq("id", Number(summary.group_id))
+    .maybeSingle<ChatGroupRow>();
+  assertNoError(groupError, "讀取群組資料失敗。");
+  if (!group) {
+    throw new RepositoryError("群組資料不存在。", 404, "GROUP_NOT_FOUND");
+  }
+
+  const { data: user, error: userError } = await supabase
+    .from("line_users")
+    .select("id, line_user_id, display_name, picture_url")
+    .eq("id", Number(summary.requested_by_user_id))
+    .maybeSingle<GroupMemberRow>();
+  assertNoError(userError, "讀取 LINE 使用者資料失敗。");
+  if (!user) {
+    throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
+  }
+
+  return {
+    summaryId: Number(summary.id),
+    lineGroupId: String(group.line_group_id),
+    requestedByLineUserId: String(user.line_user_id),
+    sourceDriveUrl: String(summary.source_drive_url),
+    sourceDriveFileId: String(summary.source_drive_file_id),
+  };
+}
+
+export async function markEventSummaryCompleted(input: {
+  summaryId: number;
+  transcriptText: string;
+  summaryJson: unknown;
+  summaryText: string;
+}): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const summaryId = requireFiniteNumber(input.summaryId, "summaryId");
+  const transcriptText = requireNonEmpty(input.transcriptText, "transcriptText");
+  const summaryText = requireNonEmpty(input.summaryText, "summaryText");
+
+  const { error } = await supabase
+    .from("event_summaries")
+    .update({
+      status: "completed",
+      transcript_text: transcriptText,
+      summary_json: input.summaryJson as never,
+      summary_text: summaryText,
+      completed_at: new Date().toISOString(),
+      processing_at: null,
+      last_error: null,
+    })
+    .eq("id", summaryId);
+  assertNoError(error, "儲存會議總結結果失敗。");
+}
+
+export async function markEventSummaryFailed(input: {
+  summaryId: number;
+  message: string;
+}): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const summaryId = requireFiniteNumber(input.summaryId, "summaryId");
+  const message = requireNonEmpty(input.message, "message");
+
+  const { error } = await supabase
+    .from("event_summaries")
+    .update({
+      status: "failed",
+      processing_at: null,
+      last_error: normalizeOptionalText(message),
+    })
+    .eq("id", summaryId);
+  assertNoError(error, "更新會議總結失敗狀態失敗。");
 }
