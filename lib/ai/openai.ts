@@ -86,7 +86,12 @@ export async function summarizeMeetingTranscript(input: {
           ].join("\n"),
         },
       ],
-      response_format: { type: "json_schema", json_schema: schema },
+      text: {
+        format: {
+          type: "json_schema",
+          json_schema: schema,
+        },
+      },
     }),
     cache: "no-store",
   });
