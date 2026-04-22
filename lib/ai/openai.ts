@@ -18,7 +18,7 @@ export type MeetingSummary = {
   topic: string;
   bullets: string[];
   decisions: string[];
-  actionItems: { item: string; owner?: string; due?: string }[];
+  actionItems: { item: string; owner: string; due: string }[];
 };
 
 export async function summarizeMeetingTranscript(input: {
@@ -52,7 +52,7 @@ export async function summarizeMeetingTranscript(input: {
               owner: { type: "string" },
               due: { type: "string" },
             },
-            required: ["item"],
+            required: ["item", "owner", "due"],
           },
         },
       },
@@ -137,8 +137,8 @@ function isMeetingSummary(value: unknown): value is MeetingSummary {
     if (!item || typeof item !== "object") return false;
     const r = item as Record<string, unknown>;
     if (typeof r.item !== "string") return false;
-    if (typeof r.owner !== "undefined" && typeof r.owner !== "string") return false;
-    if (typeof r.due !== "undefined" && typeof r.due !== "string") return false;
+    if (typeof r.owner !== "string") return false;
+    if (typeof r.due !== "string") return false;
   }
   return true;
 }
@@ -173,8 +173,8 @@ export function formatMeetingSummaryForLine(input: {
     lines.push("");
     lines.push("行動項：");
     input.summary.actionItems.slice(0, 10).forEach((a, idx) => {
-      const owner = a.owner?.trim();
-      const due = a.due?.trim();
+      const owner = a.owner.trim();
+      const due = a.due.trim();
       const suffixParts = [owner ? `owner:${owner}` : null, due ? `due:${due}` : null].filter(
         Boolean
       );
