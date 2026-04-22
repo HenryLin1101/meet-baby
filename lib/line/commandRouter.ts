@@ -11,8 +11,8 @@ const EXPLICIT_PREFIXES = ["/", "!"] as const;
 /** 註冊順序影響關鍵字同時命中時的優先權（先註冊者優先）。 */
 const registeredCommands: CommandHandlerBase[] = [
   new HelpCommand(),
-  new MeetingCommand(),
   new SummaryCommand(),
+  new MeetingCommand(),
   new UpcomingCommand(),
   new LiffCommand(),
 ];

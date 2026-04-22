@@ -190,6 +190,7 @@ export type CreateGoogleOAuthStateInput = {
   lineUserId: string;
   state: string;
   expiresAt: string;
+  redirectUrl?: string | null;
 };
 
 export type CreatedSummary = {
@@ -355,6 +356,7 @@ type GoogleOAuthStateRow = {
   user_id: number;
   expires_at: string;
   used_at: string | null;
+  redirect_url?: string | null;
 };
 
 type EventSummaryRow = {
@@ -892,6 +894,7 @@ export async function createGoogleOAuthState(
   const lineUserId = requireNonEmpty(input.lineUserId, "lineUserId");
   const state = requireNonEmpty(input.state, "state");
   const expiresAt = parseEventDate(input.expiresAt, "expiresAt");
+  const redirectUrl = normalizeOptionalText(input.redirectUrl);
 
   const user = await getLineUserByLineUserId(lineUserId);
   if (!user) {
@@ -902,19 +905,20 @@ export async function createGoogleOAuthState(
     state,
     user_id: user.id,
     expires_at: expiresAt.toISOString(),
+    redirect_url: redirectUrl,
   });
   assertNoError(error, "建立 Google OAuth state 失敗。");
 }
 
 export async function consumeGoogleOAuthState(
   state: string
-): Promise<{ lineUserId: string } | null> {
+): Promise<{ lineUserId: string; redirectUrl: string | null } | null> {
   const supabase = getSupabaseAdmin();
   const normalizedState = requireNonEmpty(state, "state");
 
   const { data, error } = await supabase
     .from("google_oauth_states")
-    .select("state, user_id, expires_at, used_at")
+    .select("state, user_id, expires_at, used_at, redirect_url")
     .eq("state", normalizedState)
     .maybeSingle<GoogleOAuthStateRow>();
   assertNoError(error, "讀取 Google OAuth state 失敗。");
@@ -941,7 +945,13 @@ export async function consumeGoogleOAuthState(
   assertNoError(userError, "讀取 LINE 使用者資料失敗。");
   if (!user) return null;
 
-  return { lineUserId: String(user.line_user_id) };
+  return {
+    lineUserId: String(user.line_user_id),
+    redirectUrl:
+      data.redirect_url === null || typeof data.redirect_url === "undefined"
+        ? null
+        : String(data.redirect_url),
+  };
 }
 
 export async function upsertGoogleCredentialForLineUser(

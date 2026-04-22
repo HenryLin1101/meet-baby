@@ -54,6 +54,22 @@ export async function GET(request: Request) {
       scopes: tokens.scope ?? null,
     });
 
+    const redirectUrl = consumed.redirectUrl?.trim() || "";
+    if (redirectUrl) {
+      return html(
+        [
+          "<h2>授權成功</h2>",
+          "<p>正在帶你回到 LINE…（若未自動跳轉，請點下方按鈕）</p>",
+          `<p><a href="${escapeHtml(redirectUrl)}">回到 LINE / LIFF</a></p>`,
+          "<script>",
+          `window.setTimeout(function(){ window.location.href = ${JSON.stringify(
+            redirectUrl
+          )}; }, 400);`,
+          "</script>",
+        ].join("")
+      );
+    }
+
     return html(
       [
         "<h2>授權成功</h2>",

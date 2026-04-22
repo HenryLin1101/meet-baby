@@ -3,8 +3,8 @@ import {
   getGoogleCredentialByLineUserId,
   setEventSummaryQStashMessageId,
 } from "@/lib/db/repository";
-import { buildLiffUrl } from "@/lib/liff/utils";
 import { extractFirstUrl, parseGoogleDriveLink } from "@/lib/google/driveLink";
+import { getAppBaseUrlOrThrow } from "@/lib/qstash/client";
 import { CommandHandlerBase, type CommandContext, type ConversationUpdate } from "@/lib/modules/types";
 import { publishSummaryJob } from "@/lib/summaries/qstash";
 
@@ -37,22 +37,17 @@ export class SummaryCommand extends CommandHandlerBase {
 
     const credential = await getGoogleCredentialByLineUserId(context.lineUserId);
     if (!credential) {
-      const oauthLiff = buildLiffUrl("/liff/google-auth", {
-        groupId: context.lineGroupId,
-      });
-      if (!oauthLiff) {
-        return {
-          reply:
-            "需要先授權 Google Drive 才能讀取逐字稿，但目前尚未設定 LIFF。請先設定 NEXT_PUBLIC_LIFF_ID。",
-        };
-      }
+      const consentUrl = new URL("/api/google/oauth/consent", getAppBaseUrlOrThrow());
+      consentUrl.searchParams.set("lineUserId", context.lineUserId);
+      consentUrl.searchParams.set("groupId", context.lineGroupId);
 
       return {
         reply: [
           "我需要取得你的 Google Drive 權限才能讀取這份逐字稿。",
-          "請點下方連結一鍵授權，完成後再把檔案連結貼一次給我。",
+          "請用 Safari/Chrome 開啟下方連結完成授權（LINE 內建瀏覽器會被 Google 擋）。",
+          consentUrl.toString(),
+          "授權完成後，請回到群組再把檔案連結貼一次給我。",
         ].join("\n"),
-        quickReplies: [{ label: "一鍵授權 Google", uri: oauthLiff }],
       };
     }
 

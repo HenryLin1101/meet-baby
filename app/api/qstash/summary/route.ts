@@ -6,12 +6,12 @@ import {
   markEventSummaryFailed,
 } from "@/lib/db/repository";
 import { exportGoogleDocAsPlainText } from "@/lib/google/drive";
-import { buildLiffUrl } from "@/lib/liff/utils";
 import { createMessagingClient } from "@/lib/line/messagingClient";
 import {
   formatMeetingSummaryForLine,
   summarizeMeetingTranscript,
 } from "@/lib/ai/openai";
+import { getAppBaseUrlOrThrow } from "@/lib/qstash/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,16 +54,15 @@ async function handleSummaryJob(request: Request) {
       details.requestedByLineUserId
     );
     if (!credential) {
-      const oauthLiff = buildLiffUrl("/liff/google-auth", {
-        groupId: details.lineGroupId,
-      });
-      const msg = oauthLiff
-        ? [
-            "我需要 Google Drive 授權才能讀取逐字稿。",
-            "請點此授權後，再把連結貼一次給我：",
-            oauthLiff,
-          ].join("\n")
-        : "我需要 Google Drive 授權才能讀取逐字稿，但目前尚未設定 LIFF。";
+      const consentUrl = new URL("/api/google/oauth/consent", getAppBaseUrlOrThrow());
+      consentUrl.searchParams.set("lineUserId", details.requestedByLineUserId);
+      consentUrl.searchParams.set("groupId", details.lineGroupId);
+      const msg = [
+        "我需要 Google Drive 授權才能讀取逐字稿。",
+        "請用 Safari/Chrome 開啟下方連結完成授權（LINE 內建瀏覽器會被 Google 擋）。",
+        consentUrl.toString(),
+        "授權完成後，請回到群組再把逐字稿連結貼一次給我。",
+      ].join("\n");
 
       await client.pushMessage({
         to: details.lineGroupId,
