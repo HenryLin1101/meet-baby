@@ -30,7 +30,6 @@ type GroupMessageEvent = LineMessageEvent & {
 
 const WELCOME_ON_FOLLOW = "歡迎加入好友！有問題隨時傳訊息給我。";
 const WELCOME_ON_JOIN = "大家好！想要預約會議的話所以參與人都要先標註我一下喔！";
-const COMMAND_NOT_FOUND = "我目前看不懂這個指令，請輸入 /help。";
 
 
 
@@ -61,6 +60,11 @@ function textMessage(text: string, quickReplies?: QuickReplyOption[]) {
 
 function getLineGroupIdFromSource(source?: webhook.Source): string | undefined {
   return source?.type === "group" ? source.groupId : undefined;
+}
+
+function getLineUserIdFromSource(source?: webhook.Source): string | undefined {
+  if (!source || source.type === "room") return undefined;
+  return typeof source.userId === "string" ? source.userId : undefined;
 }
 
 function buildFallbackFlexMessage(lineGroupId?: string): messagingApi.FlexMessage {
@@ -150,14 +154,14 @@ function buildFallbackFlexMessage(lineGroupId?: string): messagingApi.FlexMessag
             "contents": [
               {
                 "type": "image",
-                "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar_month.png?v=1",
+                "url": WINDOW_LOCATION_ORIGIN + "/icons/event_upcoming.png?v=1",
                 "size": "50px",
                 "aspectMode": "fit",
                 "aspectRatio": "1:1"
               },
               {
                 "type": "text",
-                "text": "查看日曆",
+                "text": "即將到來",
                 "size": "md",
                 "weight": "bold",
                 "color": "#8CE1E6",
@@ -167,9 +171,9 @@ function buildFallbackFlexMessage(lineGroupId?: string): messagingApi.FlexMessag
               }
             ],
             "action": {
-              "type": "uri",
+              "type": "message",
               "label": "action",
-              "uri": buildLiffUrl("/liff/calendar", { groupId: lineGroupId }) ?? ""
+              "text": "米特寶寶 即將到來"
             }
           }
         ]
@@ -236,12 +240,17 @@ function buildConversationKey(event: LineMessageEvent): string | null {
   return null;
 }
 
-function buildContext(rawText: string, lineGroupId?: string): CommandContext {
+function buildContext(
+  rawText: string,
+  lineGroupId?: string,
+  lineUserId?: string
+): CommandContext {
   return {
     rawText,
     normalizedText: normalizeText(rawText),
     args: [],
     lineGroupId,
+    lineUserId,
   };
 }
 
@@ -392,7 +401,11 @@ async function handleContinuedConversation(
 
   const update = await cmd.continueConversation(
     activeState,
-    buildContext(rawText, getLineGroupIdFromSource(event.source))
+    buildContext(
+      rawText,
+      getLineGroupIdFromSource(event.source),
+      getLineUserIdFromSource(event.source)
+    )
   );
   applyUpdate(conversationKey, cmd.name, update);
   // 多輪回覆中，除非明確結束，否則仍在流程裡 → 加上取消按鈕
@@ -411,6 +424,7 @@ async function handleTextMessage(
   const token = event.replyToken;
   if (!token) return;
   const lineGroupId = getLineGroupIdFromSource(event.source);
+  const lineUserId = getLineUserIdFromSource(event.source);
 
   const { addressed, text: cleanedText } = resolveAddress(event.message);
   const conversationKey = buildConversationKey(event);
@@ -448,7 +462,7 @@ async function handleTextMessage(
   // 新對話：必須有叫到 bot（@ 或別名）才會觸發
   if (!addressed) return;
 
-  const routed = routeCommand(cleanedText, { lineGroupId });
+  const routed = routeCommand(cleanedText, { lineGroupId, lineUserId });
   if (!routed) {
     await replyFlex(client, token, buildFallbackFlexMessage(lineGroupId));
     return;

@@ -1,6 +1,7 @@
 import { HelpCommand } from "@/lib/line/commands/helpCommand";
 import { LiffCommand } from "@/lib/line/commands/liffCommand";
 import { MeetingCommand } from "@/lib/line/commands/meetingCommand";
+import { UpcomingCommand } from "@/lib/line/commands/upcomingCommand";
 import type { CommandContext } from "@/lib/modules/types";
 import { CommandHandlerBase } from "@/lib/modules/types";
 
@@ -10,6 +11,7 @@ const EXPLICIT_PREFIXES = ["/", "!"] as const;
 const registeredCommands: CommandHandlerBase[] = [
   new HelpCommand(),
   new MeetingCommand(),
+  new UpcomingCommand(),
   new LiffCommand(),
 ];
 
@@ -24,6 +26,7 @@ export type RoutedCommand = {
 
 type RouteCommandOptions = {
   lineGroupId?: string;
+  lineUserId?: string;
 };
 
 export function getCommandByName(name: string): CommandHandlerBase | null {
@@ -77,6 +80,7 @@ export function routeCommand(
         normalizedText,
         args: explicit.args,
         lineGroupId: options?.lineGroupId,
+        lineUserId: options?.lineUserId,
       },
     };
   }
@@ -93,6 +97,7 @@ export function routeCommand(
       normalizedText,
       args: [],
       lineGroupId: options?.lineGroupId,
+      lineUserId: options?.lineUserId,
     },
   };
 }

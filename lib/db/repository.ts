@@ -84,6 +84,15 @@ type ListedEventOwnerRow = {
   display_name: string;
 };
 
+type UpcomingEventRow = {
+  event_id: number;
+  line_group_id: string;
+  title: string;
+  location: string | null;
+  starts_at: string;
+  timezone: string;
+};
+
 type EventReminderEventRow = {
   id: number;
   group_id: number;
@@ -138,6 +147,15 @@ export type ListedEvent = {
   timezone: string;
   status: string;
   ownerDisplayName: string;
+};
+
+export type UpcomingEvent = {
+  eventId: number;
+  lineGroupId: string;
+  title: string;
+  location: string | null;
+  startsAt: string;
+  timezone: string;
 };
 
 export type EventReminderDetails = {
@@ -470,6 +488,79 @@ export async function listLineUsersByIds(
     lineUserId: String(row.line_user_id),
     displayName: String(row.display_name),
   }));
+}
+
+function toUpcomingEvent(
+  row: UpcomingEventRow,
+): UpcomingEvent {
+  return {
+    eventId: Number(row.event_id),
+    lineGroupId: String(row.line_group_id),
+    title: String(row.title),
+    location: row.location === null ? null : String(row.location),
+    startsAt: new Date(row.starts_at).toISOString(),
+    timezone: String(row.timezone),
+  };
+}
+
+export async function isEventAttendee(
+  eventId: number,
+  lineUserId: string
+): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = Number(eventId);
+  if (!Number.isFinite(normalizedEventId)) {
+    throw new RepositoryError("eventId 格式不正確。", 400, "INVALID_INPUT");
+  }
+  const normalizedLineUserId = requireNonEmpty(lineUserId, "lineUserId");
+
+  const { data, error } = await supabase.rpc("is_event_attendee", {
+    p_event_id: normalizedEventId,
+    p_line_user_id: normalizedLineUserId,
+  });
+  assertNoError(error, "判斷活動參與者失敗。");
+
+  return Boolean(data);
+}
+
+export async function getGroupNextEvent(
+  lineGroupId: string
+): Promise<UpcomingEvent | null> {
+  const supabase = getSupabaseAdmin();
+  const normalizedLineGroupId = requireNonEmpty(lineGroupId, "lineGroupId");
+
+  const { data, error } = await supabase
+    .rpc("get_group_next_event", {
+      p_line_group_id: normalizedLineGroupId,
+    })
+    .maybeSingle<UpcomingEventRow>();
+  assertNoError(error, "讀取群組下一場活動失敗。");
+
+  if (!data) {
+    return null;
+  }
+
+  return toUpcomingEvent(data);
+}
+
+export async function getUserNextEvent(
+  lineUserId: string
+): Promise<UpcomingEvent | null> {
+  const supabase = getSupabaseAdmin();
+  const normalizedLineUserId = requireNonEmpty(lineUserId, "lineUserId");
+
+  const { data: event, error: eventError } = await supabase
+    .rpc("get_user_next_event", {
+      p_line_user_id: normalizedLineUserId,
+    })
+    .maybeSingle<UpcomingEventRow>();
+  assertNoError(eventError, "讀取使用者下一場活動失敗。");
+
+  if (!event) {
+    return null;
+  }
+
+  return toUpcomingEvent(event);
 }
 
 export async function listGroupEvents(

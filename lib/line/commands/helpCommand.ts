@@ -8,6 +8,7 @@ const HELP_MESSAGE = [
   "可用指令：",
   "/help 或 !help：顯示這份說明",
   "/meeting 或 !meeting：預約會議（多輪對話）",
+  "/upcoming 或 !upcoming：查看近期會議",
   "/liff 或 !liff：傳送預約會議表單連結",
   "",
   "對話中隨時輸入「取消」或「cancel」可中止目前流程。",

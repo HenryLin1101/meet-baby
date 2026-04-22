@@ -159,6 +159,115 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.get_group_next_event(
+  p_line_group_id TEXT
+)
+RETURNS TABLE (
+  event_id BIGINT,
+  line_group_id TEXT,
+  title TEXT,
+  location TEXT,
+  starts_at TIMESTAMPTZ,
+  timezone TEXT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF p_line_group_id IS NULL OR btrim(p_line_group_id) = '' THEN
+    RAISE EXCEPTION 'INVALID_INPUT: 缺少 groupId。';
+  END IF;
+
+  PERFORM 1
+  FROM public.chat_groups cg
+  WHERE cg.line_group_id = p_line_group_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'GROUP_NOT_FOUND: 群組資料不存在。';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    e.id,
+    cg.line_group_id,
+    e.title,
+    e.location,
+    e.starts_at,
+    e.timezone
+  FROM public.events e
+  INNER JOIN public.chat_groups cg ON cg.id = e.group_id
+  WHERE cg.line_group_id = p_line_group_id
+    AND e.status = 'scheduled'
+    AND e.starts_at >= NOW()
+  ORDER BY e.starts_at ASC, e.id ASC
+  LIMIT 1;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_event_attendee(
+  p_event_id BIGINT,
+  p_line_user_id TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.event_attendees ea
+    INNER JOIN public.line_users lu ON lu.id = ea.user_id
+    WHERE ea.event_id = p_event_id
+      AND lu.line_user_id = p_line_user_id
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_user_next_event(
+  p_line_user_id TEXT
+)
+RETURNS TABLE (
+  event_id BIGINT,
+  line_group_id TEXT,
+  title TEXT,
+  location TEXT,
+  starts_at TIMESTAMPTZ,
+  timezone TEXT
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_user_id BIGINT;
+BEGIN
+  IF p_line_user_id IS NULL OR btrim(p_line_user_id) = '' THEN
+    RAISE EXCEPTION 'INVALID_INPUT: 缺少 lineUserId。';
+  END IF;
+
+  SELECT lu.id
+  INTO v_user_id
+  FROM public.line_users lu
+  WHERE lu.line_user_id = p_line_user_id
+  LIMIT 1;
+
+  IF v_user_id IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    e.id,
+    cg.line_group_id,
+    e.title,
+    e.location,
+    e.starts_at,
+    e.timezone
+  FROM public.events e
+  INNER JOIN public.chat_groups cg ON cg.id = e.group_id
+  INNER JOIN public.event_attendees ea ON ea.event_id = e.id
+  WHERE ea.user_id = v_user_id
+    AND e.status = 'scheduled'
+    AND e.starts_at >= NOW()
+  ORDER BY e.starts_at ASC, e.id ASC
+  LIMIT 1;
+END;
+$$;
+
 -- Optional future templates for browser-side direct reads:
 -- ALTER TABLE public.line_users ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE public.chat_groups ENABLE ROW LEVEL SECURITY;

@@ -5,6 +5,7 @@ export type CommandContext = {
   normalizedText: string;
   args: string[];
   lineGroupId?: string;
+  lineUserId?: string;
 };
 
 /**
