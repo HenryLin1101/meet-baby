@@ -4,6 +4,7 @@ import liff from "@line/liff";
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
@@ -88,7 +89,7 @@ export default function DashboardLiffPage() {
   const [errorMsg, setErrorMsg] = useState<string>(
     LIFF_ID ? "" : MISSING_LIFF_ENV_MSG
   );
-  const { isTablet, isCompact } = useResponsiveFlags();
+  const { isCompact } = useResponsiveFlags();
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [groups, setGroups] = useState<DashboardGroup[]>([]);
   const [enabledGroupIds, setEnabledGroupIds] = useState<Record<string, boolean>>(
@@ -98,6 +99,8 @@ export default function DashboardLiffPage() {
   const [selectedDateKey, setSelectedDateKey] = useState(() =>
     formatDateKey(new Date())
   );
+  /** 避免每次 refetch 都把選取日期覆寫成 API 陣列第一筆（例如固定跳回 4/21） */
+  const didApplyInitialSelection = useRef(false);
 
   useEffect(() => {
     if (!LIFF_ID) return;
@@ -154,13 +157,49 @@ export default function DashboardLiffPage() {
           return Object.fromEntries(nextGroups.map((g) => [g.lineGroupId, true]));
         });
         setMeetings(nextMeetings);
-        if (nextMeetings[0]) {
-          setSelectedDateKey(nextMeetings[0].date);
-          setCurrentMonth(startOfMonth(parseDateKey(nextMeetings[0].date)));
+
+        if (!didApplyInitialSelection.current) {
+          didApplyInitialSelection.current = true;
+          if (nextMeetings.length > 0) {
+            const sorted = [...nextMeetings].sort((a, b) =>
+              a.startsAtIso.localeCompare(b.startsAtIso)
+            );
+            const first = sorted[0];
+            setSelectedDateKey(first.date);
+            const m = startOfMonth(parseDateKey(first.date));
+            setCurrentMonth((prev) =>
+              prev.getFullYear() === m.getFullYear() && prev.getMonth() === m.getMonth()
+                ? prev
+                : m
+            );
+          } else {
+            const today = new Date();
+            setSelectedDateKey(formatDateKey(today));
+            const m = startOfMonth(today);
+            setCurrentMonth((prev) =>
+              prev.getFullYear() === m.getFullYear() && prev.getMonth() === m.getMonth()
+                ? prev
+                : m
+            );
+          }
         } else {
-          setSelectedDateKey(formatDateKey(new Date()));
-          setCurrentMonth(startOfMonth(new Date()));
+          setSelectedDateKey((prev) => {
+            const d = parseDateKey(prev);
+            const cm = currentMonth;
+            if (d.getFullYear() === cm.getFullYear() && d.getMonth() === cm.getMonth()) {
+              return prev;
+            }
+            const now = new Date();
+            if (
+              now.getFullYear() === cm.getFullYear() &&
+              now.getMonth() === cm.getMonth()
+            ) {
+              return formatDateKey(now);
+            }
+            return formatDateKey(new Date(cm.getFullYear(), cm.getMonth(), 1));
+          });
         }
+
         setStatus("ready");
       } catch (err) {
         if (cancelled) return;
@@ -212,16 +251,14 @@ export default function DashboardLiffPage() {
       <div
         style={{
           ...containerStyle,
-          gridTemplateColumns: isTablet
-            ? "minmax(0, 1fr)"
-            : "minmax(0, 2fr) minmax(18rem, 1fr)",
+          gridTemplateColumns: "minmax(0, 1fr)",
         }}
       >
         <div style={calendarColumnStyle}>
           <h1
             style={{
               ...heroTitleStyle,
-              fontSize: isCompact ? "1.85rem" : "2.15rem",
+              fontSize: isCompact ? "2.1rem" : "2.5rem",
             }}
           >
             Meeting Dashboard
@@ -359,40 +396,9 @@ export default function DashboardLiffPage() {
               </div>
             </div>
           </div>
-        </div>
-
-        <section style={sideColumnStyle}>
-          <div style={panelStyle}>
-            <h2 style={sectionTitleStyle}>即將到來</h2>
-            {upcomingMeetings.length === 0 ? (
-              <p style={emptyStyle}>目前沒有即將到來的會議。</p>
-            ) : (
-              <div style={stackStyle}>
-                {upcomingMeetings.map((meeting) => (
-                  <article key={meeting.id} style={meetingCardStyle}>
-                    <div style={meetingTimeStyle}>
-                      {meeting.date} {meeting.time}
-                    </div>
-                    <div style={meetingTitleStyle}>{meeting.title}</div>
-                    <div style={meetingMetaStyle}>
-                      <span style={groupPillStyle}>
-                        <span style={{ ...groupPillDotStyle, background: meeting.groupColor }} />
-                        {meeting.groupName}
-                      </span>
-                      <span style={metaDividerStyle}>·</span>
-                      {meeting.location} <span style={metaDividerStyle}>·</span>{" "}
-                      {meeting.owner}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </div>
 
           <div style={panelStyle}>
-            <h2 style={sectionTitleStyle}>
-              {selectedDateKey} 的會議
-            </h2>
+            <h2 style={sectionTitleStyle}>{selectedDateKey} 的會議</h2>
             {selectedMeetings.length === 0 ? (
               <p style={emptyStyle}>這一天沒有安排會議。</p>
             ) : (
@@ -401,23 +407,55 @@ export default function DashboardLiffPage() {
                   .slice()
                   .sort((a, b) => a.startsAtIso.localeCompare(b.startsAtIso))
                   .map((meeting) => (
-                  <article key={meeting.id} style={meetingCardStyle}>
-                    <div style={meetingTimeStyle}>{meeting.time}</div>
+                    <article key={meeting.id} style={meetingCardCompactStyle}>
+                      <div style={meetingTitleStyle}>{meeting.title}</div>
+                      <div style={meetingCompactRowStyle}>
+                        <span
+                          style={{
+                            ...groupPillDotStyle,
+                            background: meeting.groupColor,
+                            marginRight: "0.35rem",
+                          }}
+                        />
+                        <span style={meetingCompactMetaStyle}>{meeting.groupName}</span>
+                      </div>
+                      <div style={meetingCompactMetaStyle}>
+                        {meeting.date} {meeting.time}
+                      </div>
+                    </article>
+                  ))}
+              </div>
+            )}
+          </div>
+
+          <div style={panelStyle}>
+            <h2 style={sectionTitleStyle}>即將到來</h2>
+            {upcomingMeetings.length === 0 ? (
+              <p style={emptyStyle}>目前沒有即將到來的會議。</p>
+            ) : (
+              <div style={stackStyle}>
+                {upcomingMeetings.map((meeting) => (
+                  <article key={meeting.id} style={meetingCardCompactStyle}>
                     <div style={meetingTitleStyle}>{meeting.title}</div>
-                    <div style={meetingMetaStyle}>{meeting.location}</div>
-                    <div style={meetingOwnerStyle}>
-                      <span style={groupPillStyle}>
-                        <span style={{ ...groupPillDotStyle, background: meeting.groupColor }} />
-                        {meeting.groupName}
-                      </span>
-                      <span style={metaDividerStyle}>·</span> 主持人：{meeting.owner}
+                    <div style={meetingCompactRowStyle}>
+                      <span
+                        style={{
+                          ...groupPillDotStyle,
+                          background: meeting.groupColor,
+                          marginRight: "0.35rem",
+                        }}
+                      />
+                      <span style={meetingCompactMetaStyle}>{meeting.groupName}</span>
+                    </div>
+                    <div style={meetingCompactMetaStyle}>
+                      {meeting.date} {meeting.time}
                     </div>
                   </article>
                 ))}
               </div>
             )}
           </div>
-        </section>
+        </div>
       </div>
     </main>
   );
@@ -643,12 +681,6 @@ const containerStyle: CSSProperties = {
   gap: "1rem",
 };
 
-const sideColumnStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "1rem",
-};
-
 const surfaceCardStyle: CSSProperties = {
   background: `linear-gradient(
     145deg,
@@ -843,36 +875,31 @@ const stackStyle: CSSProperties = {
   gap: "0.75rem",
 };
 
-const meetingCardStyle: CSSProperties = {
+const meetingCardCompactStyle: CSSProperties = {
   borderRadius: THEME.radiusCard,
   border: `1px solid ${THEME.surfaceBorder}`,
   background: THEME.surface,
-  padding: "0.85rem 0.9rem",
+  padding: "0.65rem 0.75rem",
   boxShadow: THEME.shadowCard,
-};
-
-const meetingTimeStyle: CSSProperties = {
-  fontSize: "0.82rem",
-  color: THEME.accent,
-  marginBottom: "0.25rem",
-  fontWeight: 700,
 };
 
 const meetingTitleStyle: CSSProperties = {
   fontWeight: 700,
-  marginBottom: "0.25rem",
+  marginBottom: "0.35rem",
   color: THEME.text,
+  fontSize: "0.92rem",
 };
 
-const meetingMetaStyle: CSSProperties = {
-  fontSize: "0.86rem",
+const meetingCompactRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  marginBottom: "0.2rem",
+};
+
+const meetingCompactMetaStyle: CSSProperties = {
+  fontSize: "0.8rem",
   color: THEME.textMuted,
-};
-
-const meetingOwnerStyle: CSSProperties = {
-  marginTop: "0.3rem",
-  fontSize: "0.82rem",
-  color: THEME.text,
+  lineHeight: 1.35,
 };
 
 const emptyStyle: CSSProperties = {
@@ -932,24 +959,9 @@ const avatarStyle: CSSProperties = {
   boxShadow: THEME.shadowCard,
 };
 
-const groupPillStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "0.35rem",
-  padding: "0.2rem 0.5rem",
-  borderRadius: "999px",
-  border: `1px solid ${THEME.surfaceBorder}`,
-  background: THEME.surfaceSubtle,
-};
-
 const groupPillDotStyle: CSSProperties = {
   width: "8px",
   height: "8px",
   borderRadius: "999px",
-};
-
-const metaDividerStyle: CSSProperties = {
-  margin: "0 0.35rem",
-  opacity: 0.55,
-  color: THEME.textMuted,
+  flexShrink: 0,
 };
