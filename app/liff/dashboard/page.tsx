@@ -77,11 +77,9 @@ type DashboardEvent = {
   ownerDisplayName: string;
 };
 
-type CalendarCell = {
-  key: string;
-  date: Date;
-  inMonth: boolean;
-};
+type CalendarCell =
+  | { kind: "pad"; key: string }
+  | { kind: "day"; key: string; date: Date };
 
 const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as const;
 
@@ -220,25 +218,19 @@ export default function DashboardLiffPage() {
         }}
       >
         <div style={calendarColumnStyle}>
-          <section style={heroCardStyle}>
-            <h1
-              style={{
-                ...heroTitleStyle,
-                fontSize: isCompact ? "1.85rem" : "2.15rem",
-              }}
-            >
-              Meeting Dashboard
-            </h1>
-          </section>
+          <h1
+            style={{
+              ...heroTitleStyle,
+              fontSize: isCompact ? "1.85rem" : "2.15rem",
+            }}
+          >
+            Meeting Dashboard
+          </h1>
 
-          {status === "error" && (
-            <section style={{ ...surfaceCardStyle, padding: "1rem 1.1rem" }}>
-              <div style={errorBoxStyle}>{errorMsg}</div>
-            </section>
-          )}
+          {status === "error" && <div style={errorBoxStyle}>{errorMsg}</div>}
 
           {groups.length > 0 && (
-            <section style={filterCardStyle}>
+            <div style={filterBlockStyle}>
               <p style={filterSectionLabelStyle}>群組篩選</p>
               <div style={chipBarStyle}>
                 {groups.map((group) => {
@@ -280,10 +272,10 @@ export default function DashboardLiffPage() {
                   );
                 })}
               </div>
-            </section>
+            </div>
           )}
 
-          <section style={calendarCardStyle}>
+          <div style={calendarSheetStyle}>
             <div style={monthBarStyle}>
               <button
                 type="button"
@@ -295,7 +287,6 @@ export default function DashboardLiffPage() {
                   ‹
                 </span>
               </button>
-              <strong style={monthLabelStyle}>{formatMonthLabel(currentMonth)}</strong>
               <button
                 type="button"
                 style={monthArrowButtonStyle}
@@ -307,6 +298,7 @@ export default function DashboardLiffPage() {
                 </span>
               </button>
             </div>
+            <h2 style={monthHeadingStyle}>{formatMonthLabel(currentMonth)}</h2>
 
             <div style={calendarGridWrapStyle}>
               <div style={calendarStyle}>
@@ -316,55 +308,57 @@ export default function DashboardLiffPage() {
                   </div>
                 ))}
                 {calendarCells.map((cell) => {
+                  if (cell.kind === "pad") {
+                    return (
+                      <div key={cell.key} style={calendarPadCellStyle} aria-hidden />
+                    );
+                  }
                   const dayKey = formatDateKey(cell.date);
                   const dayMeetings = meetingsByDate[dayKey] ?? [];
                   const isSelected = selectedDateKey === dayKey;
                   const isToday = dayKey === formatDateKey(new Date());
+                  const markerColors = buildGroupMarkers(dayMeetings);
                   return (
                     <button
                       key={cell.key}
                       type="button"
-                      style={{
-                        ...dayCellStyle,
-                        opacity: cell.inMonth ? 1 : 0.42,
-                        borderColor: isSelected
-                          ? THEME.accent
-                          : isToday
-                            ? THEME.todayBorder
-                            : THEME.surfaceBorder,
-                        background: isSelected
-                          ? THEME.selectedBg
-                          : isToday
-                            ? THEME.todayBg
-                            : THEME.surfaceSubtle,
-                        boxShadow: isSelected
-                          ? THEME.shadowSelected
-                          : isToday && !isSelected
-                            ? `0 2px 8px rgba(${THEME.accentRgb}, 0.12)`
-                            : THEME.shadowCard,
-                      }}
+                      style={dayCellMinimalStyle}
                       onClick={() => setSelectedDateKey(dayKey)}
+                      aria-pressed={isSelected}
+                      aria-label={`${formatMonthDayLabel(cell.date)}${dayMeetings.length ? `，${dayMeetings.length} 場會議` : ""}`}
                     >
-                      <span style={dayNumberRowStyle}>
-                        <span style={dayNumberStyle}>{cell.date.getDate()}</span>
-                        {isToday ? (
-                          <span style={todayBadgeStyle} aria-hidden>
-                            今
-                          </span>
-                        ) : null}
+                      <span
+                        style={{
+                          ...dayNumberDiscStyle,
+                          background: isSelected ? THEME.accent : "transparent",
+                          color: isSelected ? "#FFFFFF" : THEME.text,
+                          fontWeight: isToday ? 800 : 700,
+                          boxShadow:
+                            isToday && !isSelected
+                              ? `inset 0 0 0 1.5px rgba(${THEME.accentRgb}, 0.35)`
+                              : "none",
+                        }}
+                      >
+                        {cell.date.getDate()}
                       </span>
-                      {dayMeetings.length > 0 ? (
-                        <div style={dayCellFooterStyle}>
-                          <span style={markerDotStyle} />
-                          <span style={meetingCountStyle}>{`${dayMeetings.length} 場`}</span>
+                      {markerColors.length > 0 ? (
+                        <div style={eventDotsRowStyle}>
+                          {markerColors.slice(0, 4).map((c, idx) => (
+                            <span
+                              key={`${dayKey}-dot-${idx}-${c}`}
+                              style={{ ...eventDotMiniStyle, background: c }}
+                            />
+                          ))}
                         </div>
-                      ) : null}
+                      ) : (
+                        <span style={eventDotsPlaceholderStyle} aria-hidden />
+                      )}
                     </button>
                   );
                 })}
               </div>
             </div>
-          </section>
+          </div>
         </div>
 
         <section style={sideColumnStyle}>
@@ -463,20 +457,37 @@ function groupMeetingsByDate(meetings: MeetingItem[]): Record<string, MeetingIte
   }, {});
 }
 
+/** 僅當月 1 日～末日；前後以空白格對齊週列，不顯示其他月份日期。 */
 function buildCalendarCells(month: Date): CalendarCell[] {
   const monthStart = startOfMonth(month);
-  const firstCell = new Date(monthStart);
-  firstCell.setDate(monthStart.getDate() - monthStart.getDay());
+  const y = monthStart.getFullYear();
+  const m = monthStart.getMonth();
+  const startDow = monthStart.getDay();
+  const lastDay = new Date(y, m + 1, 0).getDate();
 
-  return Array.from({ length: 42 }, (_, index) => {
-    const date = new Date(firstCell);
-    date.setDate(firstCell.getDate() + index);
-    return {
-      key: `${date.toISOString()}-${index}`,
-      date,
-      inMonth: date.getMonth() === monthStart.getMonth(),
-    };
-  });
+  const cells: CalendarCell[] = [];
+  for (let i = 0; i < startDow; i += 1) {
+    cells.push({ kind: "pad", key: `pad-${y}-${m}-lead-${i}` });
+  }
+  for (let d = 1; d <= lastDay; d += 1) {
+    cells.push({ kind: "day", key: `day-${y}-${m}-${d}`, date: new Date(y, m, d) });
+  }
+  while (cells.length % 7 !== 0) {
+    cells.push({ kind: "pad", key: `pad-${y}-${m}-trail-${cells.length}` });
+  }
+  return cells;
+}
+
+function buildGroupMarkers(meetings: MeetingItem[]): string[] {
+  const colors = new Set<string>();
+  for (const meeting of meetings) {
+    colors.add(meeting.groupColor);
+  }
+  return [...colors];
+}
+
+function formatMonthDayLabel(date: Date): string {
+  return `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
 }
 
 function startOfMonth(date: Date): Date {
@@ -659,13 +670,8 @@ const panelStyle: CSSProperties = {
 const calendarColumnStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "0.65rem",
+  gap: "0.75rem",
   minWidth: 0,
-};
-
-const heroCardStyle: CSSProperties = {
-  ...surfaceCardStyle,
-  padding: "1rem 1.15rem",
 };
 
 const heroTitleStyle: CSSProperties = {
@@ -676,22 +682,27 @@ const heroTitleStyle: CSSProperties = {
   lineHeight: 1.15,
 };
 
-const filterCardStyle: CSSProperties = {
-  ...surfaceCardStyle,
-  padding: "0.75rem 0.9rem",
+const filterBlockStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.45rem",
 };
 
 const filterSectionLabelStyle: CSSProperties = {
-  margin: "0 0 0.5rem",
+  margin: 0,
   fontSize: "0.78rem",
   fontWeight: 700,
   color: THEME.textMuted,
   letterSpacing: "0.02em",
 };
 
-const calendarCardStyle: CSSProperties = {
-  ...surfaceCardStyle,
-  padding: "0.75rem 0.65rem",
+/** 行事曆區：白底、無標題／群組外框，風格貼近極簡月曆 */
+const calendarSheetStyle: CSSProperties = {
+  background: THEME.surface,
+  borderRadius: THEME.radiusPanel,
+  padding: "0.85rem 0.55rem 1rem",
+  border: `1px solid ${THEME.surfaceBorder}`,
+  boxShadow: THEME.shadowCard,
 };
 
 const errorBoxStyle: CSSProperties = {
@@ -709,16 +720,16 @@ const monthBarStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  marginBottom: "0.5rem",
+  marginBottom: "0.35rem",
   gap: "0.5rem",
 };
 
-const monthLabelStyle: CSSProperties = {
-  fontSize: "0.95rem",
+const monthHeadingStyle: CSSProperties = {
+  margin: "0 0 0.65rem",
+  fontSize: "1.35rem",
+  fontWeight: 800,
   color: THEME.text,
-  fontWeight: 700,
-  flex: "1 1 auto",
-  textAlign: "center",
+  letterSpacing: "-0.02em",
 };
 
 const monthArrowButtonStyle: CSSProperties = {
@@ -752,89 +763,71 @@ const calendarGridWrapStyle: CSSProperties = {
 const calendarStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-  gap: "0.28rem",
+  gap: "0.15rem 0.1rem",
   width: "100%",
 };
 
 const weekdayStyle: CSSProperties = {
   textAlign: "center",
   color: THEME.textMuted,
-  fontSize: "0.68rem",
-  paddingBottom: "0.15rem",
-  fontWeight: 700,
+  fontSize: "0.7rem",
+  paddingBottom: "0.2rem",
+  fontWeight: 600,
+  letterSpacing: "0.02em",
 };
 
-const dayCellStyle: CSSProperties = {
-  minHeight: "2.35rem",
-  borderRadius: "14px",
-  border: `1px solid ${THEME.surfaceBorder}`,
-  padding: "0.18rem 0.14rem 0.2rem",
-  color: THEME.text,
+const calendarPadCellStyle: CSSProperties = {
+  minHeight: "3rem",
+};
+
+const dayCellMinimalStyle: CSSProperties = {
+  border: "none",
+  background: "transparent",
+  padding: "0.15rem 0.05rem",
+  minHeight: "3rem",
   display: "flex",
   flexDirection: "column",
-  alignItems: "stretch",
+  alignItems: "center",
   justifyContent: "flex-start",
-  gap: "0.08rem",
+  gap: "0.2rem",
   cursor: "pointer",
-  transition: "border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease",
   WebkitTapHighlightColor: "transparent",
+  color: THEME.text,
 };
 
-const dayNumberRowStyle: CSSProperties = {
+const dayNumberDiscStyle: CSSProperties = {
+  width: "1.85rem",
+  height: "1.85rem",
+  borderRadius: "50%",
   display: "inline-flex",
   alignItems: "center",
-  gap: "0.2rem",
-  flexWrap: "wrap",
-  justifyContent: "flex-start",
-};
-
-const dayNumberStyle: CSSProperties = {
-  fontSize: "0.78rem",
-  fontWeight: 700,
-  color: THEME.text,
-  lineHeight: 1.1,
-};
-
-const todayBadgeStyle: CSSProperties = {
-  fontSize: "0.52rem",
-  fontWeight: 700,
+  justifyContent: "center",
+  fontSize: "0.84rem",
   lineHeight: 1,
-  color: THEME.textMuted,
-  background: `rgba(${THEME.accentRgb}, 0.14)`,
-  border: `1px solid rgba(${THEME.accentRgb}, 0.28)`,
-  borderRadius: "4px",
-  padding: "0.08rem 0.2rem",
-  letterSpacing: "0.04em",
+  transition: "background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease",
 };
 
-const dayCellFooterStyle: CSSProperties = {
+const eventDotsRowStyle: CSSProperties = {
   display: "flex",
   flexDirection: "row",
   alignItems: "center",
-  gap: "0.2rem",
-  marginTop: "auto",
-  minHeight: 0,
+  justifyContent: "center",
+  gap: "0.18rem",
+  minHeight: "0.45rem",
 };
 
-const meetingCountStyle: CSSProperties = {
-  fontSize: "0.58rem",
-  color: THEME.textMuted,
-  fontWeight: 700,
-  lineHeight: 1,
-  whiteSpace: "nowrap",
-};
-
-const markerDotStyle: CSSProperties = {
-  width: "6px",
-  height: "6px",
+const eventDotMiniStyle: CSSProperties = {
+  width: "5px",
+  height: "5px",
   borderRadius: "999px",
-  background: THEME.accent,
   flexShrink: 0,
-  boxShadow: `
-    0 0 0 1px rgba(255, 255, 255, 0.65),
-    0 0 6px rgba(${THEME.accentRgb}, 0.65),
-    0 0 12px rgba(${THEME.accentRgb}, 0.35)
-  `,
+  boxShadow: "0 0 0 1px rgba(255,255,255,0.85)",
+};
+
+const eventDotsPlaceholderStyle: CSSProperties = {
+  display: "block",
+  minHeight: "0.45rem",
+  width: "100%",
 };
 
 const sectionTitleStyle: CSSProperties = {
