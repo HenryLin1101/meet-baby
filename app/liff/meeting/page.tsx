@@ -179,6 +179,10 @@ export default function MeetingLiffPage() {
     <main
       style={{
         ...mainStyle,
+        width: "100%",
+        maxWidth: "100vw",
+        overflowX: "hidden",
+        boxSizing: "border-box",
         padding: isCompact ? "0.75rem 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px))" : "1.25rem 1rem calc(1.5rem + env(safe-area-inset-bottom, 0px))",
       }}
     >
@@ -211,29 +215,31 @@ export default function MeetingLiffPage() {
               />
             </Field>
 
-            {/* 日期/時間並排易超出白卡寬度（尤其原生 date/time），改為永遠直向堆疊 */}
-            <Row isCompact>
-              <Field label="日期" required>
-                <input
-                  style={inputStyle}
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  required
-                  disabled={disabled}
-                />
-              </Field>
-              <Field label="時間" required>
-                <input
-                  style={inputStyle}
-                  type="time"
-                  value={time}
-                  onChange={(e) => setTime(e.target.value)}
-                  required
-                  disabled={disabled}
-                />
-              </Field>
-            </Row>
+            {/* 日期/時間直向堆疊；外層限制寬度避免原生 date/time 撐破白卡 */}
+            <div style={dateTimeRowWrapStyle}>
+              <Row isCompact>
+                <Field label="日期" required>
+                  <input
+                    style={dateTimeInputStyle}
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    required
+                    disabled={disabled}
+                  />
+                </Field>
+                <Field label="時間" required>
+                  <input
+                    style={dateTimeInputStyle}
+                    type="time"
+                    value={time}
+                    onChange={(e) => setTime(e.target.value)}
+                    required
+                    disabled={disabled}
+                  />
+                </Field>
+              </Row>
+            </div>
 
             <Field label="地點">
               <input
@@ -382,7 +388,7 @@ const formPanelStyle: CSSProperties = {
   background: `linear-gradient(145deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.88) 100%)`,
   border: `1px solid ${THEME.surfaceBorder}`,
   borderRadius: THEME.radiusPanel,
-  padding: "1.1rem 1rem 1.15rem",
+  padding: "1.1rem 0.75rem 1.15rem",
   boxShadow: THEME.shadowPanel,
   backdropFilter: `saturate(1.1) blur(${THEME.glassBlur})`,
   WebkitBackdropFilter: `saturate(1.1) blur(${THEME.glassBlur})`,
@@ -397,6 +403,18 @@ const formStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "1.1rem",
+  width: "100%",
+  minWidth: 0,
+  maxWidth: "100%",
+  boxSizing: "border-box",
+};
+
+const dateTimeRowWrapStyle: CSSProperties = {
+  width: "100%",
+  minWidth: 0,
+  maxWidth: "100%",
+  overflow: "hidden",
+  boxSizing: "border-box",
 };
 
 const fieldStyle: CSSProperties = {
@@ -437,7 +455,7 @@ const inputStyle: CSSProperties = {
   borderRadius: THEME.radiusInput,
   color: THEME.text,
   padding: "0.85rem 0.95rem",
-  fontSize: "1rem",
+  fontSize: "16px",
   fontFamily: "inherit",
   width: "100%",
   maxWidth: "100%",
@@ -446,6 +464,16 @@ const inputStyle: CSSProperties = {
   boxSizing: "border-box",
   WebkitTapHighlightColor: "transparent",
   boxShadow: THEME.shadowCard,
+};
+
+/** 原生 date/time 在窄容器內易超出，單獨收斂寬度 */
+const dateTimeInputStyle: CSSProperties = {
+  ...inputStyle,
+  display: "block",
+  width: "100%",
+  maxWidth: "100%",
+  minWidth: 0,
+  flex: "none",
 };
 
 const submitButtonStyle: CSSProperties = {
