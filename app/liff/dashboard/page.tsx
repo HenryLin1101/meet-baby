@@ -9,6 +9,7 @@ import {
   type CSSProperties,
 } from "react";
 import { initLiffOrThrow } from "@/lib/liff/client";
+import MascotLoadingScreen from "@/lib/liff/MascotLoadingScreen";
 import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
 
 /** LIFF Dashboard：淺灰質感 + 吉祥物電光藍（#00C2FF） */
@@ -241,7 +242,13 @@ export default function DashboardLiffPage() {
     .sort((a, b) => a.startsAtIso.localeCompare(b.startsAtIso))
     .slice(0, 5);
 
+  const showBlockingLoader =
+    Boolean(LIFF_ID) && (status === "loading" || status === "loadingEvents");
+
   return (
+    <>
+      {showBlockingLoader && <MascotLoadingScreen />}
+      {!showBlockingLoader && (
     <main
       style={{
         ...mainStyle,
@@ -464,6 +471,8 @@ export default function DashboardLiffPage() {
         </div>
       </div>
     </main>
+      )}
+    </>
   );
 }
 

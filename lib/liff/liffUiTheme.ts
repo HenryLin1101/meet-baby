@@ -1,3 +1,8 @@
+/**
+ * 吉祥物圖檔路徑（放於 `public/images/`，可替換為你的 PNG/SVG，檔名可自訂並改此常數）。
+ */
+export const LIFF_MASCOT_IMAGE_PATH = "/images/mite-mascot.svg";
+
 /** 共用 LIFF 淺色介面（Dashboard / 預約會議等） */
 export const LIFF_UI_THEME = {
   pageBg: "#F0F2F5",

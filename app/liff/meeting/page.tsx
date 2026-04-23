@@ -10,6 +10,7 @@ import {
 } from "react";
 import { initLiffOrThrow } from "@/lib/liff/client";
 import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
+import MascotLoadingScreen from "@/lib/liff/MascotLoadingScreen";
 import { LIFF_UI_THEME as THEME } from "@/lib/liff/liffUiTheme";
 import MemberMultiSelect from "@/lib/tools/MemberMultiSelect";
 
@@ -168,7 +169,13 @@ export default function MeetingLiffPage() {
 
   const disabled = status !== "ready";
 
+  const showBlockingLoader =
+    Boolean(LIFF_ID) && (status === "loading" || status === "loadingMembers");
+
   return (
+    <>
+      {showBlockingLoader && <MascotLoadingScreen />}
+      {!showBlockingLoader && (
     <main
       style={{
         ...mainStyle,
@@ -204,7 +211,8 @@ export default function MeetingLiffPage() {
               />
             </Field>
 
-            <Row isCompact={isCompact}>
+            {/* 日期/時間並排易超出白卡寬度（尤其原生 date/time），改為永遠直向堆疊 */}
+            <Row isCompact>
               <Field label="日期" required>
                 <input
                   style={inputStyle}
@@ -278,6 +286,8 @@ export default function MeetingLiffPage() {
         </div>
       </div>
     </main>
+      )}
+    </>
   );
 }
 
@@ -345,10 +355,12 @@ const mainStyle: CSSProperties = {
 const pageInnerStyle: CSSProperties = {
   maxWidth: "26rem",
   width: "100%",
+  minWidth: 0,
   margin: "0 auto",
   display: "flex",
   flexDirection: "column",
   gap: "0.65rem",
+  boxSizing: "border-box",
 };
 
 const pageTitleStyle: CSSProperties = {
@@ -374,6 +386,11 @@ const formPanelStyle: CSSProperties = {
   boxShadow: THEME.shadowPanel,
   backdropFilter: `saturate(1.1) blur(${THEME.glassBlur})`,
   WebkitBackdropFilter: `saturate(1.1) blur(${THEME.glassBlur})`,
+  width: "100%",
+  maxWidth: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
+  overflow: "hidden",
 };
 
 const formStyle: CSSProperties = {
@@ -386,8 +403,11 @@ const fieldStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "0.45rem",
-  flex: 1,
+  flex: "1 1 auto",
   minWidth: 0,
+  width: "100%",
+  maxWidth: "100%",
+  boxSizing: "border-box",
 };
 
 const labelStyle: CSSProperties = {
@@ -404,6 +424,11 @@ const rowStyle: CSSProperties = {
   display: "flex",
   gap: "0.75rem",
   flexWrap: "wrap",
+  width: "100%",
+  minWidth: 0,
+  maxWidth: "100%",
+  boxSizing: "border-box",
+  alignItems: "stretch",
 };
 
 const inputStyle: CSSProperties = {
@@ -415,6 +440,8 @@ const inputStyle: CSSProperties = {
   fontSize: "1rem",
   fontFamily: "inherit",
   width: "100%",
+  maxWidth: "100%",
+  minWidth: 0,
   minHeight: "2.85rem",
   boxSizing: "border-box",
   WebkitTapHighlightColor: "transparent",

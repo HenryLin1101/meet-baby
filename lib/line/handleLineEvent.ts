@@ -17,6 +17,7 @@ import type {
   ConversationUpdate,
   QuickReplyOption,
 } from "@/lib/modules/types";
+import { LIFF_UI_THEME } from "@/lib/liff/liffUiTheme";
 import { buildLiffUrl } from "@/lib/liff/utils";
 
 type LineEvent = webhook.Event;
@@ -67,119 +68,109 @@ function getLineUserIdFromSource(source?: webhook.Source): string | undefined {
   return typeof source.userId === "string" ? source.userId : undefined;
 }
 
+function menuItemBox(params: {
+  iconPath: string;
+  label: string;
+  action: messagingApi.URIAction | messagingApi.MessageAction;
+}): messagingApi.FlexBox {
+  const { iconPath, label, action } = params;
+  return {
+    type: "box",
+    layout: "vertical",
+    backgroundColor: LIFF_UI_THEME.surface,
+    cornerRadius: "20px",
+    borderWidth: "1px",
+    borderColor: LIFF_UI_THEME.surfaceBorder,
+    paddingAll: "12px",
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+    contents: [
+      {
+        type: "image",
+        url: `${WINDOW_LOCATION_ORIGIN}${iconPath}`,
+        size: "48px",
+        aspectMode: "fit",
+        aspectRatio: "1:1",
+      },
+      {
+        type: "text",
+        text: label,
+        size: "sm",
+        weight: "bold",
+        color: LIFF_UI_THEME.text,
+        margin: "10px",
+        align: "center",
+        wrap: true,
+      },
+    ],
+    action,
+  };
+}
+
 function buildFallbackFlexMessage(lineGroupId?: string): messagingApi.FlexMessage {
+  const meetingUri = buildLiffUrl("/liff/meeting", { groupId: lineGroupId }) ?? "";
+  const dashboardUri = buildLiffUrl("/liff/dashboard", { groupId: lineGroupId }) ?? "";
+
   return {
     type: "flex",
-    altText: "顯示選單",
+    altText: "米特寶寶選單：預約會議、儀表板、即將到來",
     contents: {
-      "type": "bubble",
-      "size": "mega",
-      "body": {
-        "type": "box",
-        "layout": "horizontal",
-        "spacing": "10px",
-        "backgroundColor": "#2C3439",
-        "paddingAll": "15px",
-        "alignItems": "center",
-        "cornerRadius": "15px",
-        "contents": [
+      type: "bubble",
+      size: "mega",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "12px",
+        backgroundColor: LIFF_UI_THEME.pageBg,
+        paddingAll: "14px",
+        contents: [
           {
-            "type": "box",
-            "layout": "vertical",
-            "cornerRadius": "12px",
-            "alignItems": "center",
-            "flex": 1,
-            "contents": [
-              {
-                "type": "image",
-                "url": WINDOW_LOCATION_ORIGIN + "/icons/calendar_add.png?v=1",
-                "size": "50px",
-                "aspectMode": "fit",
-                "aspectRatio": "1:1"
-              },
-              {
-                "type": "text",
-                "text": "預約會議",
-                "size": "md",
-                "weight": "bold",
-                "color": "#8CE1E6",
-                "margin": "8px",
-                "align": "center",
-                "wrap": true
-              }
-            ],
-            "action": {
-              "type": "uri",
-              "label": "action",
-              "uri": buildLiffUrl("/liff/meeting", { groupId: lineGroupId }) ?? ""
-            }
+            type: "text",
+            text: "米特寶寶",
+            weight: "bold",
+            size: "lg",
+            color: LIFF_UI_THEME.text,
+            align: "start",
           },
           {
-            "type": "box",
-            "layout": "vertical",
-            "cornerRadius": "12px",
-            "alignItems": "center",
-            "flex": 1,
-            "contents": [
-              {
-                "type": "image",
-                "url": WINDOW_LOCATION_ORIGIN + "/icons/dashboard.png?v=1",
-                "size": "50px",
-                "aspectMode": "fit",
-                "aspectRatio": "1:1"
-              },
-              {
-                "type": "text",
-                "text": "儀表板",
-                "size": "md",
-                "weight": "bold",
-                "color": "#8CE1E6",
-                "margin": "8px",
-                "align": "center",
-                "wrap": true
-              }
-            ],
-            "action": {
-              "type": "uri",
-              "label": "action",
-              "uri": buildLiffUrl("/liff/dashboard", { groupId: lineGroupId }) ?? ""
-            }
+            type: "text",
+            text: "選擇功能",
+            size: "xs",
+            color: LIFF_UI_THEME.textMuted,
+            margin: "2px",
           },
           {
-            "type": "box",
-            "layout": "vertical",
-            "cornerRadius": "12px",
-            "alignItems": "center",
-            "flex": 1,
-            "contents": [
-              {
-                "type": "image",
-                "url": WINDOW_LOCATION_ORIGIN + "/icons/event_upcoming.png?v=1",
-                "size": "50px",
-                "aspectMode": "fit",
-                "aspectRatio": "1:1"
-              },
-              {
-                "type": "text",
-                "text": "即將到來",
-                "size": "md",
-                "weight": "bold",
-                "color": "#8CE1E6",
-                "margin": "8px",
-                "align": "center",
-                "wrap": true
-              }
+            type: "box",
+            layout: "horizontal",
+            spacing: "10px",
+            paddingTop: "4px",
+            contents: [
+              menuItemBox({
+                iconPath: "/icons/calendar_add.png?v=2",
+                label: "預約會議",
+                action: { type: "uri", label: "預約會議", uri: meetingUri },
+              }),
+              menuItemBox({
+                iconPath: "/icons/dashboard.png?v=2",
+                label: "儀表板",
+                action: { type: "uri", label: "儀表板", uri: dashboardUri },
+              }),
+              menuItemBox({
+                iconPath: "/icons/event_upcoming.png?v=2",
+                label: "即將到來",
+                action: {
+                  type: "message",
+                  label: "即將到來",
+                  text: "米特寶寶 即將到來",
+                },
+              }),
             ],
-            "action": {
-              "type": "message",
-              "label": "action",
-              "text": "米特寶寶 即將到來"
-            }
-          }
-        ]
-      }
-    }
-  }
+          },
+        ],
+      },
+    },
+  };
 }
 
 /** 若訊息 @ 到本機器人，回傳剝掉該段後的文字；否則回傳 null。 */
