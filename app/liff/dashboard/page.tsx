@@ -12,6 +12,13 @@ import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
 
 type Status = "loading" | "loadingEvents" | "ready" | "error";
 
+type DashboardGroup = {
+  groupId: number;
+  lineGroupId: string;
+  name: string | null;
+  pictureUrl: string | null;
+};
+
 type MeetingItem = {
   id: string;
   title: string;
@@ -19,10 +26,16 @@ type MeetingItem = {
   time: string;
   location: string;
   owner: string;
+  lineGroupId: string;
+  groupName: string;
+  groupPictureUrl: string | null;
+  groupColor: string;
+  startsAtIso: string;
 };
 
 type DashboardEvent = {
   eventId: number;
+  lineGroupId: string;
   title: string;
   description: string | null;
   location: string | null;
@@ -48,6 +61,10 @@ export default function DashboardLiffPage() {
   );
   const { isTablet, isCompact } = useResponsiveFlags();
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
+  const [groups, setGroups] = useState<DashboardGroup[]>([]);
+  const [enabledGroupIds, setEnabledGroupIds] = useState<Record<string, boolean>>(
+    {}
+  );
   const [meetings, setMeetings] = useState<MeetingItem[]>([]);
   const [selectedDateKey, setSelectedDateKey] = useState(() =>
     formatDateKey(new Date())
@@ -60,13 +77,8 @@ export default function DashboardLiffPage() {
       try {
         await initLiffOrThrow(LIFF_ID, "dashboard");
 
-        const params = new URLSearchParams(window.location.search);
-        const groupId = params.get("groupId")?.trim();
         const accessToken = liff.getAccessToken()?.trim();
 
-        if (!groupId) {
-          throw new Error("缺少群組資訊，請從機器人在群組內提供的 LIFF 連結開啟。");
-        }
         if (!accessToken) {
           throw new Error("無法取得 LINE access token。");
         }
@@ -74,8 +86,11 @@ export default function DashboardLiffPage() {
 
         setStatus("loadingEvents");
 
+        const range = buildDashboardRange(currentMonth);
         const response = await fetch(
-          `/api/events?groupId=${encodeURIComponent(groupId)}`,
+          `/api/dashboard?rangeStart=${encodeURIComponent(
+            range.rangeStart
+          )}&rangeEnd=${encodeURIComponent(range.rangeEnd)}`,
           {
             method: "GET",
             headers: {
@@ -87,6 +102,7 @@ export default function DashboardLiffPage() {
 
         const payload = (await response.json()) as {
           error?: string;
+          groups?: DashboardGroup[];
           events?: DashboardEvent[];
         };
 
@@ -94,9 +110,20 @@ export default function DashboardLiffPage() {
           throw new Error(payload.error ?? "讀取活動失敗");
         }
 
-        const nextMeetings = (payload.events ?? []).map(mapEventToMeetingItem);
+        const nextGroups = payload.groups ?? [];
+        const groupMeta = new Map<string, DashboardGroup>(
+          nextGroups.map((group) => [group.lineGroupId, group])
+        );
+        const nextMeetings = (payload.events ?? [])
+          .map((event) => mapEventToMeetingItem(event, groupMeta))
+          .filter((x): x is MeetingItem => Boolean(x));
         if (cancelled) return;
 
+        setGroups(nextGroups);
+        setEnabledGroupIds((prev) => {
+          if (Object.keys(prev).length > 0) return prev;
+          return Object.fromEntries(nextGroups.map((g) => [g.lineGroupId, true]));
+        });
         setMeetings(nextMeetings);
         if (nextMeetings[0]) {
           setSelectedDateKey(nextMeetings[0].date);
@@ -115,16 +142,35 @@ export default function DashboardLiffPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [currentMonth]);
 
   const calendarCells = useMemo(
     () => buildCalendarCells(currentMonth),
     [currentMonth]
   );
-  const meetingsByDate = useMemo(() => groupMeetingsByDate(meetings), [meetings]);
+  const enabledGroupSet = useMemo(
+    () =>
+      new Set(
+        Object.entries(enabledGroupIds)
+          .filter(([, enabled]) => enabled)
+          .map(([id]) => id)
+      ),
+    [enabledGroupIds]
+  );
+
+  const visibleMeetings = useMemo(
+    () => meetings.filter((meeting) => enabledGroupSet.has(meeting.lineGroupId)),
+    [meetings, enabledGroupSet]
+  );
+
+  const meetingsByDate = useMemo(
+    () => groupMeetingsByDate(visibleMeetings),
+    [visibleMeetings]
+  );
   const selectedMeetings = meetingsByDate[selectedDateKey] ?? [];
-  const upcomingMeetings = meetings
+  const upcomingMeetings = visibleMeetings
     .filter((meeting) => meeting.date >= formatDateKey(new Date()))
+    .sort((a, b) => a.startsAtIso.localeCompare(b.startsAtIso))
     .slice(0, 5);
 
   return (
@@ -152,12 +198,54 @@ export default function DashboardLiffPage() {
           >
             <div>
               <h1 style={titleStyle}>Meeting Dashboard</h1>
-              <p style={subtitleStyle}>顯示這個群組目前已建立的會議時程。</p>
+              <p style={subtitleStyle}>
+                顯示你加入的所有群組會議，並可用群組標籤快速篩選。
+              </p>
             </div>
             <StatusBadge status={status} />
           </div>
 
           {status === "error" && <div style={errorBoxStyle}>{errorMsg}</div>}
+
+          {groups.length > 0 && (
+            <div style={chipBarStyle}>
+              {groups.map((group) => {
+                const enabled = enabledGroupIds[group.lineGroupId] ?? true;
+                const color = resolveGroupColor(group.lineGroupId);
+                return (
+                  <button
+                    key={group.lineGroupId}
+                    type="button"
+                    onClick={() =>
+                      setEnabledGroupIds((prev) => ({
+                        ...prev,
+                        [group.lineGroupId]: !(prev[group.lineGroupId] ?? true),
+                      }))
+                    }
+                    style={{
+                      ...chipStyle,
+                      opacity: enabled ? 1 : 0.45,
+                      borderColor: enabled
+                        ? "rgba(158, 238, 255, 0.34)"
+                        : "rgba(255,255,255,0.1)",
+                    }}
+                    aria-pressed={enabled}
+                    title={group.name ?? group.lineGroupId}
+                  >
+                    <GroupAvatar
+                      name={group.name ?? "群組"}
+                      pictureUrl={group.pictureUrl}
+                      color={color}
+                    />
+                    <span style={chipLabelStyle}>
+                      {group.name?.trim() || "未命名群組"}
+                    </span>
+                    <span style={{ ...chipDotStyle, background: color }} />
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           <div
             style={{
@@ -198,6 +286,8 @@ export default function DashboardLiffPage() {
                 const dayKey = formatDateKey(cell.date);
                 const dayMeetings = meetingsByDate[dayKey] ?? [];
                 const isSelected = selectedDateKey === dayKey;
+                const isToday = dayKey === formatDateKey(new Date());
+                const markers = buildGroupMarkers(dayMeetings);
                 return (
                   <button
                     key={cell.key}
@@ -206,10 +296,16 @@ export default function DashboardLiffPage() {
                       ...dayCellStyle,
                       minHeight: isCompact ? "4.6rem" : "5.25rem",
                       opacity: cell.inMonth ? 1 : 0.45,
-                      borderColor: isSelected ? "var(--accent-strong)" : "rgba(255,255,255,0.1)",
+                      borderColor: isSelected
+                        ? "var(--accent-strong)"
+                        : isToday
+                          ? "rgba(158, 238, 255, 0.55)"
+                          : "rgba(255,255,255,0.1)",
                       background: isSelected
                         ? "rgba(158, 238, 255, 0.14)"
-                        : "rgba(236, 242, 248, 0.06)",
+                        : isToday
+                          ? "rgba(158, 238, 255, 0.08)"
+                          : "rgba(236, 242, 248, 0.06)",
                       boxShadow: isSelected
                         ? "0 10px 18px rgba(116, 216, 242, 0.18)"
                         : "none",
@@ -217,9 +313,28 @@ export default function DashboardLiffPage() {
                     onClick={() => setSelectedDateKey(dayKey)}
                   >
                     <span style={dayNumberStyle}>{cell.date.getDate()}</span>
-                    <span style={meetingCountStyle}>
-                      {dayMeetings.length > 0 ? `${dayMeetings.length} meeting` : ""}
-                    </span>
+                    {dayMeetings.length > 0 ? (
+                      <div style={markerWrapStyle}>
+                        <div style={markerRowStyle}>
+                          {markers.slice(0, 3).map((marker) => (
+                            <span
+                              key={marker}
+                              style={{ ...markerDotStyle, background: marker }}
+                            />
+                          ))}
+                          {markers.length > 3 && (
+                            <span style={markerMoreStyle}>
+                              +{markers.length - 3}
+                            </span>
+                          )}
+                        </div>
+                        <span style={meetingCountStyle}>
+                          {dayMeetings.length > 0 ? `${dayMeetings.length} 場` : ""}
+                        </span>
+                      </div>
+                    ) : (
+                      <span style={meetingCountStyle} />
+                    )}
                   </button>
                 );
               })}
@@ -241,7 +356,13 @@ export default function DashboardLiffPage() {
                     </div>
                     <div style={meetingTitleStyle}>{meeting.title}</div>
                     <div style={meetingMetaStyle}>
-                      {meeting.location} · {meeting.owner}
+                      <span style={groupPillStyle}>
+                        <span style={{ ...groupPillDotStyle, background: meeting.groupColor }} />
+                        {meeting.groupName}
+                      </span>
+                      <span style={metaDividerStyle}>·</span>
+                      {meeting.location} <span style={metaDividerStyle}>·</span>{" "}
+                      {meeting.owner}
                     </div>
                   </article>
                 ))}
@@ -257,12 +378,21 @@ export default function DashboardLiffPage() {
               <p style={emptyStyle}>這一天沒有安排會議。</p>
             ) : (
               <div style={stackStyle}>
-                {selectedMeetings.map((meeting) => (
+                {selectedMeetings
+                  .slice()
+                  .sort((a, b) => a.startsAtIso.localeCompare(b.startsAtIso))
+                  .map((meeting) => (
                   <article key={meeting.id} style={meetingCardStyle}>
                     <div style={meetingTimeStyle}>{meeting.time}</div>
                     <div style={meetingTitleStyle}>{meeting.title}</div>
                     <div style={meetingMetaStyle}>{meeting.location}</div>
-                    <div style={meetingOwnerStyle}>主持人：{meeting.owner}</div>
+                    <div style={meetingOwnerStyle}>
+                      <span style={groupPillStyle}>
+                        <span style={{ ...groupPillDotStyle, background: meeting.groupColor }} />
+                        {meeting.groupName}
+                      </span>
+                      <span style={metaDividerStyle}>·</span> 主持人：{meeting.owner}
+                    </div>
                   </article>
                 ))}
               </div>
@@ -373,17 +503,90 @@ function formatMonthLabel(date: Date): string {
   return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`;
 }
 
-function mapEventToMeetingItem(event: DashboardEvent): MeetingItem {
-  const startsAt = new Date(event.startsAt);
+function mapEventToMeetingItem(
+  event: DashboardEvent,
+  groupMeta: Map<string, DashboardGroup>
+): MeetingItem | null {
+  const group = groupMeta.get(event.lineGroupId) ?? null;
+  if (!group) return null;
 
+  const startsAt = new Date(event.startsAt);
+  const groupName = group.name?.trim() || "未命名群組";
   return {
-    id: String(event.eventId),
+    id: `${event.lineGroupId}-${event.eventId}`,
     title: event.title,
     date: formatDateKeyInTimeZone(startsAt, event.timezone),
     time: formatTimeLabelInTimeZone(startsAt, event.timezone),
     location: event.location?.trim() || "未提供地點",
     owner: event.ownerDisplayName,
+    lineGroupId: event.lineGroupId,
+    groupName,
+    groupPictureUrl: group.pictureUrl,
+    groupColor: resolveGroupColor(event.lineGroupId),
+    startsAtIso: startsAt.toISOString(),
   };
+}
+
+function buildDashboardRange(month: Date) {
+  const start = new Date(month.getFullYear(), month.getMonth(), 1);
+  start.setDate(start.getDate() - 10);
+  const end = new Date(month.getFullYear(), month.getMonth() + 1, 1);
+  end.setDate(end.getDate() + 45);
+  return { rangeStart: start.toISOString(), rangeEnd: end.toISOString() };
+}
+
+function buildGroupMarkers(meetings: MeetingItem[]): string[] {
+  const colors = new Set<string>();
+  for (const meeting of meetings) {
+    colors.add(meeting.groupColor);
+  }
+  return [...colors];
+}
+
+const GROUP_COLORS = [
+  "#9EEEFF",
+  "#74D8F2",
+  "#7C92FF",
+  "#B388FF",
+  "#FFB4E6",
+  "#FFCF66",
+  "#7BE0B8",
+  "#FF8A7A",
+] as const;
+
+function resolveGroupColor(lineGroupId: string): string {
+  let hash = 0;
+  for (let i = 0; i < lineGroupId.length; i += 1) {
+    hash = (hash * 31 + lineGroupId.charCodeAt(i)) >>> 0;
+  }
+  return GROUP_COLORS[hash % GROUP_COLORS.length] ?? GROUP_COLORS[0];
+}
+
+function GroupAvatar({
+  name,
+  pictureUrl,
+  color,
+}: {
+  name: string;
+  pictureUrl: string | null;
+  color: string;
+}) {
+  const initial = name.trim().slice(0, 1) || "G";
+  if (pictureUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={pictureUrl}
+        alt={name}
+        style={{ ...avatarStyle, borderColor: color }}
+      />
+    );
+  }
+  return (
+    <span style={{ ...avatarStyle, borderColor: color, background: "rgba(255,255,255,0.06)" }}>
+      {initial}
+    </span>
+  );
 }
 
 function formatDateKeyInTimeZone(date: Date, timeZone: string): string {
@@ -547,6 +750,31 @@ const meetingCountStyle: CSSProperties = {
   textAlign: "left",
 };
 
+const markerWrapStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.25rem",
+  alignItems: "flex-start",
+};
+
+const markerRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.25rem",
+};
+
+const markerDotStyle: CSSProperties = {
+  width: "8px",
+  height: "8px",
+  borderRadius: "999px",
+  boxShadow: "0 0 0 1px rgba(0,0,0,0.18)",
+};
+
+const markerMoreStyle: CSSProperties = {
+  fontSize: "0.72rem",
+  color: "var(--muted)",
+};
+
 const sectionTitleStyle: CSSProperties = {
   margin: "0 0 0.9rem",
   fontSize: "1.05rem",
@@ -590,4 +818,74 @@ const meetingOwnerStyle: CSSProperties = {
 const emptyStyle: CSSProperties = {
   margin: 0,
   color: "var(--muted)",
+};
+
+const chipBarStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "0.5rem",
+  marginBottom: "1rem",
+};
+
+const chipStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.45rem",
+  padding: "0.4rem 0.55rem",
+  borderRadius: "999px",
+  border: "1px solid rgba(255,255,255,0.12)",
+  background: "rgba(236, 242, 248, 0.06)",
+  color: "var(--text)",
+  cursor: "pointer",
+};
+
+const chipLabelStyle: CSSProperties = {
+  fontSize: "0.82rem",
+  maxWidth: "10rem",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const chipDotStyle: CSSProperties = {
+  width: "10px",
+  height: "10px",
+  borderRadius: "999px",
+  boxShadow: "0 0 0 1px rgba(0,0,0,0.14)",
+};
+
+const avatarStyle: CSSProperties = {
+  width: "22px",
+  height: "22px",
+  borderRadius: "999px",
+  objectFit: "cover",
+  border: "1px solid rgba(255,255,255,0.18)",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "0.75rem",
+  fontWeight: 700,
+  color: "var(--text)",
+  flexShrink: 0,
+};
+
+const groupPillStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.35rem",
+  padding: "0.2rem 0.5rem",
+  borderRadius: "999px",
+  border: "1px solid rgba(255,255,255,0.12)",
+  background: "rgba(255,255,255,0.05)",
+};
+
+const groupPillDotStyle: CSSProperties = {
+  width: "8px",
+  height: "8px",
+  borderRadius: "999px",
+};
+
+const metaDividerStyle: CSSProperties = {
+  margin: "0 0.35rem",
+  opacity: 0.7,
 };

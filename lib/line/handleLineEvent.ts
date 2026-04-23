@@ -37,7 +37,7 @@ const CANCEL_KEYWORDS = new Set(["cancel", "取消"]);
 const CANCEL_QUICK_REPLY: QuickReplyOption = { label: "取消", text: "取消" };
 
 /** 在群組中沒有 @ 也能喚醒機器人的別名。 */
-const BOT_ALIASES = ["米特寶寶", "米特", "米寶", "肥特寶寶", "肥寶"] as const;
+const BOT_ALIASES = ["米特寶寶", "米特", "米寶", "肥特寶寶", "肥寶","胖豬吳俞寬"] as const;
 const WINDOW_LOCATION_ORIGIN = "https://meet-baby.vercel.app";
 
 function textMessage(text: string, quickReplies?: QuickReplyOption[]) {

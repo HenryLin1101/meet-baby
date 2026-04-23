@@ -69,6 +69,7 @@ type CreatedEventRow = {
 
 type ListedEventRow = {
   id: number;
+  group_id?: number;
   created_by_user_id: number;
   title: string;
   description: string | null;
@@ -147,6 +148,17 @@ export type ListedEvent = {
   timezone: string;
   status: string;
   ownerDisplayName: string;
+};
+
+export type UserChatGroup = {
+  groupId: number;
+  lineGroupId: string;
+  name: string | null;
+  pictureUrl: string | null;
+};
+
+export type ListedEventWithGroup = ListedEvent & {
+  lineGroupId: string;
 };
 
 export type UpcomingEvent = {
@@ -683,6 +695,117 @@ export async function listGroupEvents(
     ownerDisplayName:
       ownerMap.get(Number(row.created_by_user_id)) ?? "未知建立者",
   }));
+}
+
+export async function listUserGroups(lineUserId: string): Promise<UserChatGroup[]> {
+  const supabase = getSupabaseAdmin();
+  const normalizedLineUserId = requireNonEmpty(lineUserId, "lineUserId");
+  const user = await getLineUserByLineUserId(normalizedLineUserId);
+  if (!user) {
+    throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
+  }
+
+  const { data, error } = await supabase
+    .from("group_memberships")
+    .select("group_id, chat_groups(id, line_group_id, name, picture_url)")
+    .eq("user_id", user.id)
+    .eq("is_active", true);
+
+  assertNoError(error, "讀取使用者群組資料失敗。");
+
+  return (data ?? [])
+    .map((row) => {
+      const embedded = (row as { chat_groups?: ChatGroupRow[] | ChatGroupRow | null })
+        .chat_groups;
+      const group = Array.isArray(embedded) ? embedded[0] ?? null : embedded ?? null;
+      if (!group) return null;
+      return {
+        groupId: Number(group.id),
+        lineGroupId: String(group.line_group_id),
+        name: group.name === null ? null : String(group.name),
+        pictureUrl: group.picture_url === null ? null : String(group.picture_url),
+      } satisfies UserChatGroup;
+    })
+    .filter((x): x is UserChatGroup => Boolean(x))
+    .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "zh-Hant"));
+}
+
+export async function listEventsByGroupIds(input: {
+  groups: UserChatGroup[];
+  rangeStart?: string | null;
+  rangeEnd?: string | null;
+}): Promise<ListedEventWithGroup[]> {
+  const supabase = getSupabaseAdmin();
+  const groupIds = [...new Set(input.groups.map((g) => Number(g.groupId)))].filter(
+    Number.isFinite
+  );
+  if (groupIds.length === 0) return [];
+
+  const groupLineIdById = new Map<number, string>(
+    input.groups.map((g) => [Number(g.groupId), String(g.lineGroupId)])
+  );
+
+  let query = supabase
+    .from("events")
+    .select(
+      "id, group_id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status"
+    )
+    .in("group_id", groupIds)
+    .eq("status", "scheduled")
+    .order("starts_at", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (input.rangeStart) {
+    const start = parseEventDate(input.rangeStart, "rangeStart");
+    query = query.gte("starts_at", start.toISOString());
+  }
+  if (input.rangeEnd) {
+    const end = parseEventDate(input.rangeEnd, "rangeEnd");
+    query = query.lt("starts_at", end.toISOString());
+  }
+
+  const { data: events, error: eventError } = await query;
+  assertNoError(eventError, "讀取活動清單失敗。");
+
+  const rows = (events ?? []) as ListedEventRow[];
+  if (rows.length === 0) return [];
+
+  const ownerIds = [...new Set(rows.map((row) => Number(row.created_by_user_id)))].filter(
+    Number.isFinite
+  );
+  const { data: owners, error: ownerError } = await supabase
+    .from("line_users")
+    .select("id, display_name")
+    .in("id", ownerIds);
+  assertNoError(ownerError, "讀取活動建立者資料失敗。");
+
+  const ownerMap = new Map<number, string>(
+    ((owners ?? []) as ListedEventOwnerRow[]).map((owner) => [
+      Number(owner.id),
+      String(owner.display_name),
+    ])
+  );
+
+  return rows
+    .map((row) => {
+      const groupId = Number((row as { group_id?: unknown }).group_id);
+      const lineGroupId = groupLineIdById.get(groupId);
+      if (!lineGroupId) return null;
+      return {
+        lineGroupId,
+        eventId: Number(row.id),
+        title: String(row.title),
+        description: row.description === null ? null : String(row.description),
+        location: row.location === null ? null : String(row.location),
+        startsAt: new Date(row.starts_at).toISOString(),
+        endsAt: row.ends_at === null ? null : new Date(row.ends_at).toISOString(),
+        timezone: String(row.timezone),
+        status: String(row.status),
+        ownerDisplayName:
+          ownerMap.get(Number(row.created_by_user_id)) ?? "未知建立者",
+      } satisfies ListedEventWithGroup;
+    })
+    .filter((x): x is ListedEventWithGroup => Boolean(x));
 }
 
 export async function setEventReminderSchedule(
