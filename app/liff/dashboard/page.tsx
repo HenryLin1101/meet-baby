@@ -208,7 +208,7 @@ export default function DashboardLiffPage() {
     <main
       style={{
         ...mainStyle,
-        padding: isCompact ? "1rem 0.75rem 1.5rem" : "1.5rem 1rem 2rem",
+        padding: isCompact ? "0.75rem 0.65rem 1.25rem" : "1.25rem 1rem 1.75rem",
       }}
     >
       <div
@@ -219,160 +219,153 @@ export default function DashboardLiffPage() {
             : "minmax(0, 2fr) minmax(18rem, 1fr)",
         }}
       >
-        <section style={panelStyle}>
-          <div
-            style={{
-              ...headerRowStyle,
-              flexDirection: isCompact ? "column" : "row",
-              alignItems: isCompact ? "flex-start" : "flex-start",
-            }}
-          >
-            <div>
-              <h1 style={titleStyle}>Meeting Dashboard</h1>
-              <p style={subtitleStyle}>
-                顯示你加入的所有群組會議，並可用群組標籤快速篩選。
-              </p>
-            </div>
-            <StatusBadge status={status} />
-          </div>
-
-          {status === "error" && <div style={errorBoxStyle}>{errorMsg}</div>}
-
-          {groups.length > 0 && (
-            <div style={chipBarStyle}>
-              {groups.map((group) => {
-                const enabled = enabledGroupIds[group.lineGroupId] ?? true;
-                const color = resolveGroupColor(group.lineGroupId);
-                return (
-                  <button
-                    key={group.lineGroupId}
-                    type="button"
-                    onClick={() =>
-                      setEnabledGroupIds((prev) => ({
-                        ...prev,
-                        [group.lineGroupId]: !(prev[group.lineGroupId] ?? true),
-                      }))
-                    }
-                    style={{
-                      ...chipStyle,
-                      opacity: enabled ? 1 : 0.5,
-                      borderColor: enabled
-                        ? `rgba(${THEME.accentRgb}, 0.45)`
-                        : THEME.surfaceBorder,
-                      boxShadow: enabled
-                        ? `0 4px 14px rgba(${THEME.accentRgb}, 0.12)`
-                        : THEME.shadowCard,
-                    }}
-                    aria-pressed={enabled}
-                    title={group.name ?? group.lineGroupId}
-                  >
-                    <GroupAvatar
-                      name={group.name ?? "群組"}
-                      pictureUrl={group.pictureUrl}
-                      color={color}
-                    />
-                    <span style={chipLabelStyle}>
-                      {group.name?.trim() || "未命名群組"}
-                    </span>
-                    <span style={{ ...chipDotStyle, background: color }} />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          <div
-            style={{
-              ...monthBarStyle,
-              flexWrap: isCompact ? "wrap" : "nowrap",
-            }}
-          >
-            <button
-              type="button"
-              style={ghostButtonStyle}
-              onClick={() => setCurrentMonth(addMonths(currentMonth, -1))}
-            >
-              上個月
-            </button>
-            <strong style={monthLabelStyle}>{formatMonthLabel(currentMonth)}</strong>
-            <button
-              type="button"
-              style={ghostButtonStyle}
-              onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
-            >
-              下個月
-            </button>
-          </div>
-
-          <div style={calendarScrollStyle}>
-            <div
+        <div style={calendarColumnStyle}>
+          <section style={heroCardStyle}>
+            <h1
               style={{
-                ...calendarStyle,
-                minWidth: isCompact ? "38rem" : "100%",
+                ...heroTitleStyle,
+                fontSize: isCompact ? "1.85rem" : "2.15rem",
               }}
             >
-              {WEEKDAY_LABELS.map((label) => (
-                <div key={label} style={weekdayStyle}>
-                  {label}
-                </div>
-              ))}
-              {calendarCells.map((cell) => {
-                const dayKey = formatDateKey(cell.date);
-                const dayMeetings = meetingsByDate[dayKey] ?? [];
-                const isSelected = selectedDateKey === dayKey;
-                const isToday = dayKey === formatDateKey(new Date());
-                return (
-                  <button
-                    key={cell.key}
-                    type="button"
-                    style={{
-                      ...dayCellStyle,
-                      minHeight: isCompact ? "4.6rem" : "5.25rem",
-                      opacity: cell.inMonth ? 1 : 0.42,
-                      borderColor: isSelected
-                        ? THEME.accent
-                        : isToday
-                          ? THEME.todayBorder
+              Meeting Dashboard
+            </h1>
+          </section>
+
+          {status === "error" && (
+            <section style={{ ...surfaceCardStyle, padding: "1rem 1.1rem" }}>
+              <div style={errorBoxStyle}>{errorMsg}</div>
+            </section>
+          )}
+
+          {groups.length > 0 && (
+            <section style={filterCardStyle}>
+              <p style={filterSectionLabelStyle}>群組篩選</p>
+              <div style={chipBarStyle}>
+                {groups.map((group) => {
+                  const enabled = enabledGroupIds[group.lineGroupId] ?? true;
+                  const color = resolveGroupColor(group.lineGroupId);
+                  return (
+                    <button
+                      key={group.lineGroupId}
+                      type="button"
+                      onClick={() =>
+                        setEnabledGroupIds((prev) => ({
+                          ...prev,
+                          [group.lineGroupId]: !(prev[group.lineGroupId] ?? true),
+                        }))
+                      }
+                      style={{
+                        ...chipStyle,
+                        opacity: enabled ? 1 : 0.5,
+                        borderColor: enabled
+                          ? `rgba(${THEME.accentRgb}, 0.45)`
                           : THEME.surfaceBorder,
-                      background: isSelected
-                        ? THEME.selectedBg
-                        : isToday
-                          ? THEME.todayBg
-                          : THEME.surfaceSubtle,
-                      boxShadow: isSelected
-                        ? THEME.shadowSelected
-                        : isToday && !isSelected
-                          ? `0 4px 14px rgba(${THEME.accentRgb}, 0.14)`
+                        boxShadow: enabled
+                          ? `0 4px 14px rgba(${THEME.accentRgb}, 0.12)`
                           : THEME.shadowCard,
-                    }}
-                    onClick={() => setSelectedDateKey(dayKey)}
-                  >
-                    <span style={dayNumberRowStyle}>
-                      <span style={dayNumberStyle}>{cell.date.getDate()}</span>
-                      {isToday ? (
-                        <span style={todayBadgeStyle} aria-hidden>
-                          今
-                        </span>
-                      ) : null}
-                    </span>
-                    {dayMeetings.length > 0 ? (
-                      <div style={markerWrapStyle}>
-                        <div style={markerRowStyle}>
-                          <span style={markerDotStyle} />
-                        </div>
-                        <span style={meetingCountStyle}>
-                          {dayMeetings.length > 0 ? `${dayMeetings.length} 場` : ""}
-                        </span>
-                      </div>
-                    ) : (
-                      <span style={meetingCountStyle} />
-                    )}
-                  </button>
-                );
-              })}
+                      }}
+                      aria-pressed={enabled}
+                      title={group.name ?? group.lineGroupId}
+                    >
+                      <GroupAvatar
+                        name={group.name ?? "群組"}
+                        pictureUrl={group.pictureUrl}
+                        color={color}
+                      />
+                      <span style={chipLabelStyle}>
+                        {group.name?.trim() || "未命名群組"}
+                      </span>
+                      <span style={{ ...chipDotStyle, background: color }} />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          <section style={calendarCardStyle}>
+            <div style={monthBarStyle}>
+              <button
+                type="button"
+                style={monthArrowButtonStyle}
+                onClick={() => setCurrentMonth(addMonths(currentMonth, -1))}
+                aria-label="上個月"
+              >
+                <span style={monthArrowGlyphStyle} aria-hidden>
+                  ‹
+                </span>
+              </button>
+              <strong style={monthLabelStyle}>{formatMonthLabel(currentMonth)}</strong>
+              <button
+                type="button"
+                style={monthArrowButtonStyle}
+                onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+                aria-label="下個月"
+              >
+                <span style={monthArrowGlyphStyle} aria-hidden>
+                  ›
+                </span>
+              </button>
             </div>
-          </div>
-        </section>
+
+            <div style={calendarGridWrapStyle}>
+              <div style={calendarStyle}>
+                {WEEKDAY_LABELS.map((label) => (
+                  <div key={label} style={weekdayStyle}>
+                    {label}
+                  </div>
+                ))}
+                {calendarCells.map((cell) => {
+                  const dayKey = formatDateKey(cell.date);
+                  const dayMeetings = meetingsByDate[dayKey] ?? [];
+                  const isSelected = selectedDateKey === dayKey;
+                  const isToday = dayKey === formatDateKey(new Date());
+                  return (
+                    <button
+                      key={cell.key}
+                      type="button"
+                      style={{
+                        ...dayCellStyle,
+                        opacity: cell.inMonth ? 1 : 0.42,
+                        borderColor: isSelected
+                          ? THEME.accent
+                          : isToday
+                            ? THEME.todayBorder
+                            : THEME.surfaceBorder,
+                        background: isSelected
+                          ? THEME.selectedBg
+                          : isToday
+                            ? THEME.todayBg
+                            : THEME.surfaceSubtle,
+                        boxShadow: isSelected
+                          ? THEME.shadowSelected
+                          : isToday && !isSelected
+                            ? `0 2px 8px rgba(${THEME.accentRgb}, 0.12)`
+                            : THEME.shadowCard,
+                      }}
+                      onClick={() => setSelectedDateKey(dayKey)}
+                    >
+                      <span style={dayNumberRowStyle}>
+                        <span style={dayNumberStyle}>{cell.date.getDate()}</span>
+                        {isToday ? (
+                          <span style={todayBadgeStyle} aria-hidden>
+                            今
+                          </span>
+                        ) : null}
+                      </span>
+                      {dayMeetings.length > 0 ? (
+                        <div style={dayCellFooterStyle}>
+                          <span style={markerDotStyle} />
+                          <span style={meetingCountStyle}>{`${dayMeetings.length} 場`}</span>
+                        </div>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        </div>
 
         <section style={sideColumnStyle}>
           <div style={panelStyle}>
@@ -433,37 +426,6 @@ export default function DashboardLiffPage() {
         </section>
       </div>
     </main>
-  );
-}
-
-function StatusBadge({ status }: { status: Status }) {
-  const label =
-    status === "ready"
-      ? "資料已就緒"
-      : status === "loading"
-        ? "LIFF 載入中"
-        : status === "loadingEvents"
-          ? "活動載入中"
-          : "LIFF 初始化失敗";
-  return (
-    <span
-      style={{
-        ...badgeStyle,
-        color: status === "error" ? THEME.errorText : THEME.text,
-        borderColor:
-          status === "ready"
-            ? `rgba(${THEME.accentRgb}, 0.45)`
-            : THEME.surfaceBorder,
-        background:
-          status === "ready"
-            ? `rgba(${THEME.accentRgb}, 0.1)`
-            : status === "error"
-              ? THEME.errorBg
-              : THEME.surfaceSubtle,
-      }}
-    >
-      {label}
-    </span>
   );
 }
 
@@ -676,50 +638,60 @@ const sideColumnStyle: CSSProperties = {
   gap: "1rem",
 };
 
-const panelStyle: CSSProperties = {
+const surfaceCardStyle: CSSProperties = {
   background: `linear-gradient(
     145deg,
-    rgba(255, 255, 255, 0.88) 0%,
-    rgba(255, 255, 255, 0.72) 100%
+    rgba(255, 255, 255, 0.92) 0%,
+    rgba(255, 255, 255, 0.78) 100%
   )`,
   border: `1px solid ${THEME.surfaceBorder}`,
   borderRadius: THEME.radiusPanel,
-  padding: "1.25rem",
   backdropFilter: `saturate(1.15) blur(${THEME.glassBlur})`,
   WebkitBackdropFilter: `saturate(1.15) blur(${THEME.glassBlur})`,
   boxShadow: THEME.shadowPanel,
 };
 
-const headerRowStyle: CSSProperties = {
+const panelStyle: CSSProperties = {
+  ...surfaceCardStyle,
+  padding: "1.25rem",
+};
+
+const calendarColumnStyle: CSSProperties = {
   display: "flex",
-  justifyContent: "space-between",
-  gap: "1rem",
-  alignItems: "flex-start",
-  marginBottom: "1rem",
+  flexDirection: "column",
+  gap: "0.65rem",
+  minWidth: 0,
 };
 
-const titleStyle: CSSProperties = {
+const heroCardStyle: CSSProperties = {
+  ...surfaceCardStyle,
+  padding: "1rem 1.15rem",
+};
+
+const heroTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: "1.5rem",
   color: THEME.text,
-  letterSpacing: "-0.02em",
+  letterSpacing: "-0.03em",
+  fontWeight: 800,
+  lineHeight: 1.15,
 };
 
-const subtitleStyle: CSSProperties = {
-  margin: "0.35rem 0 0",
-  color: THEME.textMuted,
-  fontSize: "0.92rem",
+const filterCardStyle: CSSProperties = {
+  ...surfaceCardStyle,
+  padding: "0.75rem 0.9rem",
 };
 
-const badgeStyle: CSSProperties = {
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: "999px",
-  padding: "0.35rem 0.7rem",
-  fontSize: "0.82rem",
-  whiteSpace: "nowrap",
-  background: THEME.surface,
+const filterSectionLabelStyle: CSSProperties = {
+  margin: "0 0 0.5rem",
+  fontSize: "0.78rem",
+  fontWeight: 700,
   color: THEME.textMuted,
-  boxShadow: THEME.shadowCard,
+  letterSpacing: "0.02em",
+};
+
+const calendarCardStyle: CSSProperties = {
+  ...surfaceCardStyle,
+  padding: "0.75rem 0.65rem",
 };
 
 const errorBoxStyle: CSSProperties = {
@@ -728,7 +700,7 @@ const errorBoxStyle: CSSProperties = {
   color: THEME.errorText,
   padding: "0.75rem 1rem",
   borderRadius: THEME.radiusControl,
-  marginBottom: "1rem",
+  marginBottom: 0,
   fontSize: "0.9rem",
   boxShadow: THEME.shadowCard,
 };
@@ -737,113 +709,131 @@ const monthBarStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  marginBottom: "1rem",
-  gap: "0.75rem",
+  marginBottom: "0.5rem",
+  gap: "0.5rem",
 };
 
 const monthLabelStyle: CSSProperties = {
-  fontSize: "1rem",
+  fontSize: "0.95rem",
   color: THEME.text,
   fontWeight: 700,
+  flex: "1 1 auto",
+  textAlign: "center",
 };
 
-const ghostButtonStyle: CSSProperties = {
-  background: THEME.surface,
-  color: THEME.text,
-  border: `1px solid ${THEME.surfaceBorder}`,
+const monthArrowButtonStyle: CSSProperties = {
+  width: "2.35rem",
+  height: "2.35rem",
+  flexShrink: 0,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
   borderRadius: THEME.radiusControl,
-  padding: "0.55rem 0.85rem",
+  border: `1px solid ${THEME.surfaceBorder}`,
+  background: THEME.surfaceSubtle,
+  color: THEME.text,
   cursor: "pointer",
-  fontWeight: 600,
   boxShadow: THEME.shadowCard,
+  padding: 0,
 };
 
-const calendarScrollStyle: CSSProperties = {
-  overflowX: "auto",
-  paddingBottom: "0.25rem",
+const monthArrowGlyphStyle: CSSProperties = {
+  fontSize: "1.35rem",
+  lineHeight: 1,
+  fontWeight: 300,
+  marginTop: "-0.05em",
+};
+
+const calendarGridWrapStyle: CSSProperties = {
+  width: "100%",
+  overflow: "visible",
 };
 
 const calendarStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-  gap: "0.5rem",
+  gap: "0.28rem",
+  width: "100%",
 };
 
 const weekdayStyle: CSSProperties = {
   textAlign: "center",
   color: THEME.textMuted,
-  fontSize: "0.85rem",
-  paddingBottom: "0.35rem",
-  fontWeight: 600,
+  fontSize: "0.68rem",
+  paddingBottom: "0.15rem",
+  fontWeight: 700,
 };
 
 const dayCellStyle: CSSProperties = {
-  minHeight: "5.25rem",
-  borderRadius: THEME.radiusDay,
+  minHeight: "2.35rem",
+  borderRadius: "14px",
   border: `1px solid ${THEME.surfaceBorder}`,
-  padding: "0.6rem",
+  padding: "0.18rem 0.14rem 0.2rem",
   color: THEME.text,
   display: "flex",
   flexDirection: "column",
-  alignItems: "flex-start",
-  gap: "0.35rem",
+  alignItems: "stretch",
+  justifyContent: "flex-start",
+  gap: "0.08rem",
   cursor: "pointer",
   transition: "border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease",
+  WebkitTapHighlightColor: "transparent",
 };
 
 const dayNumberRowStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
-  gap: "0.35rem",
+  gap: "0.2rem",
+  flexWrap: "wrap",
+  justifyContent: "flex-start",
 };
 
 const dayNumberStyle: CSSProperties = {
-  fontSize: "0.95rem",
+  fontSize: "0.78rem",
   fontWeight: 700,
   color: THEME.text,
+  lineHeight: 1.1,
 };
 
 const todayBadgeStyle: CSSProperties = {
-  fontSize: "0.62rem",
+  fontSize: "0.52rem",
   fontWeight: 700,
   lineHeight: 1,
   color: THEME.textMuted,
   background: `rgba(${THEME.accentRgb}, 0.14)`,
   border: `1px solid rgba(${THEME.accentRgb}, 0.28)`,
-  borderRadius: "6px",
-  padding: "0.15rem 0.28rem",
+  borderRadius: "4px",
+  padding: "0.08rem 0.2rem",
   letterSpacing: "0.04em",
 };
 
-const meetingCountStyle: CSSProperties = {
-  fontSize: "0.72rem",
-  color: THEME.textMuted,
-  textAlign: "left",
-  fontWeight: 600,
-};
-
-const markerWrapStyle: CSSProperties = {
+const dayCellFooterStyle: CSSProperties = {
   display: "flex",
-  flexDirection: "column",
-  gap: "0.25rem",
-  alignItems: "flex-start",
-};
-
-const markerRowStyle: CSSProperties = {
-  display: "flex",
+  flexDirection: "row",
   alignItems: "center",
-  gap: "0.25rem",
+  gap: "0.2rem",
+  marginTop: "auto",
+  minHeight: 0,
+};
+
+const meetingCountStyle: CSSProperties = {
+  fontSize: "0.58rem",
+  color: THEME.textMuted,
+  fontWeight: 700,
+  lineHeight: 1,
+  whiteSpace: "nowrap",
 };
 
 const markerDotStyle: CSSProperties = {
-  width: "9px",
-  height: "9px",
+  width: "6px",
+  height: "6px",
   borderRadius: "999px",
   background: THEME.accent,
+  flexShrink: 0,
   boxShadow: `
     0 0 0 1px rgba(255, 255, 255, 0.65),
-    0 0 10px rgba(${THEME.accentRgb}, 0.75),
-    0 0 18px rgba(${THEME.accentRgb}, 0.45)
+    0 0 6px rgba(${THEME.accentRgb}, 0.65),
+    0 0 12px rgba(${THEME.accentRgb}, 0.35)
   `,
 };
 
@@ -900,8 +890,8 @@ const emptyStyle: CSSProperties = {
 const chipBarStyle: CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
-  gap: "0.5rem",
-  marginBottom: "1rem",
+  gap: "0.45rem",
+  marginBottom: 0,
 };
 
 const chipStyle: CSSProperties = {
