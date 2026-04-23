@@ -10,6 +10,37 @@ import {
 import { initLiffOrThrow } from "@/lib/liff/client";
 import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
 
+/** LIFF Dashboard：淺灰質感 + 吉祥物電光藍（#00C2FF） */
+const THEME = {
+  pageBg: "#F0F2F5",
+  pageBgAlt: "#E8EBF0",
+  surface: "#FFFFFF",
+  surfaceSubtle: "#FAFBFC",
+  surfaceBorder: "#D1D9E6",
+  accent: "#00C2FF",
+  accentRgb: "0, 194, 255",
+  selectedBg: "rgba(0, 194, 255, 0.12)",
+  todayBg: "rgba(0, 194, 255, 0.07)",
+  todayBorder: "rgba(0, 194, 255, 0.42)",
+  text: "#2D3436",
+  textMuted: "#636E72",
+  errorBg: "rgba(231, 76, 60, 0.1)",
+  errorBorder: "rgba(231, 76, 60, 0.35)",
+  errorText: "#C0392B",
+  shadowRaised:
+    "0 10px 28px rgba(45, 52, 54, 0.08), 0 2px 8px rgba(45, 52, 54, 0.04)",
+  shadowPanel:
+    "0 14px 44px rgba(45, 52, 54, 0.1), 0 4px 14px rgba(45, 52, 54, 0.05)",
+  shadowCard:
+    "0 6px 18px rgba(45, 52, 54, 0.06), 0 1px 4px rgba(45, 52, 54, 0.04)",
+  shadowSelected: "0 10px 26px rgba(0, 194, 255, 0.22)",
+  radiusPanel: "24px",
+  radiusControl: "22px",
+  radiusDay: "22px",
+  radiusCard: "22px",
+  glassBlur: "18px",
+} as const;
+
 type Status = "loading" | "loadingEvents" | "ready" | "error";
 
 type DashboardGroup = {
@@ -224,10 +255,13 @@ export default function DashboardLiffPage() {
                     }
                     style={{
                       ...chipStyle,
-                      opacity: enabled ? 1 : 0.45,
+                      opacity: enabled ? 1 : 0.5,
                       borderColor: enabled
-                        ? "rgba(158, 238, 255, 0.34)"
-                        : "rgba(255,255,255,0.1)",
+                        ? `rgba(${THEME.accentRgb}, 0.45)`
+                        : THEME.surfaceBorder,
+                      boxShadow: enabled
+                        ? `0 4px 14px rgba(${THEME.accentRgb}, 0.12)`
+                        : THEME.shadowCard,
                     }}
                     aria-pressed={enabled}
                     title={group.name ?? group.lineGroupId}
@@ -287,7 +321,6 @@ export default function DashboardLiffPage() {
                 const dayMeetings = meetingsByDate[dayKey] ?? [];
                 const isSelected = selectedDateKey === dayKey;
                 const isToday = dayKey === formatDateKey(new Date());
-                const markers = buildGroupMarkers(dayMeetings);
                 return (
                   <button
                     key={cell.key}
@@ -295,38 +328,37 @@ export default function DashboardLiffPage() {
                     style={{
                       ...dayCellStyle,
                       minHeight: isCompact ? "4.6rem" : "5.25rem",
-                      opacity: cell.inMonth ? 1 : 0.45,
+                      opacity: cell.inMonth ? 1 : 0.42,
                       borderColor: isSelected
-                        ? "var(--accent-strong)"
+                        ? THEME.accent
                         : isToday
-                          ? "rgba(158, 238, 255, 0.55)"
-                          : "rgba(255,255,255,0.1)",
+                          ? THEME.todayBorder
+                          : THEME.surfaceBorder,
                       background: isSelected
-                        ? "rgba(158, 238, 255, 0.14)"
+                        ? THEME.selectedBg
                         : isToday
-                          ? "rgba(158, 238, 255, 0.08)"
-                          : "rgba(236, 242, 248, 0.06)",
+                          ? THEME.todayBg
+                          : THEME.surfaceSubtle,
                       boxShadow: isSelected
-                        ? "0 10px 18px rgba(116, 216, 242, 0.18)"
-                        : "none",
+                        ? THEME.shadowSelected
+                        : isToday && !isSelected
+                          ? `0 4px 14px rgba(${THEME.accentRgb}, 0.14)`
+                          : THEME.shadowCard,
                     }}
                     onClick={() => setSelectedDateKey(dayKey)}
                   >
-                    <span style={dayNumberStyle}>{cell.date.getDate()}</span>
+                    <span style={dayNumberRowStyle}>
+                      <span style={dayNumberStyle}>{cell.date.getDate()}</span>
+                      {isToday ? (
+                        <span style={todayBadgeStyle} aria-hidden>
+                          今
+                        </span>
+                      ) : null}
+                    </span>
                     {dayMeetings.length > 0 ? (
                       <div style={markerWrapStyle}>
                         <div style={markerRowStyle}>
-                          {markers.slice(0, 3).map((marker) => (
-                            <span
-                              key={marker}
-                              style={{ ...markerDotStyle, background: marker }}
-                            />
-                          ))}
-                          {markers.length > 3 && (
-                            <span style={markerMoreStyle}>
-                              +{markers.length - 3}
-                            </span>
-                          )}
+                          <span style={markerDotStyle} />
                         </div>
                         <span style={meetingCountStyle}>
                           {dayMeetings.length > 0 ? `${dayMeetings.length} 場` : ""}
@@ -417,11 +449,17 @@ function StatusBadge({ status }: { status: Status }) {
     <span
       style={{
         ...badgeStyle,
-        color: status === "error" ? "#ffb4b4" : "var(--text)",
+        color: status === "error" ? THEME.errorText : THEME.text,
         borderColor:
           status === "ready"
-            ? "rgba(158, 238, 255, 0.4)"
-            : "rgba(255, 255, 255, 0.12)",
+            ? `rgba(${THEME.accentRgb}, 0.45)`
+            : THEME.surfaceBorder,
+        background:
+          status === "ready"
+            ? `rgba(${THEME.accentRgb}, 0.1)`
+            : status === "error"
+              ? THEME.errorBg
+              : THEME.surfaceSubtle,
       }}
     >
       {label}
@@ -535,14 +573,6 @@ function buildDashboardRange(month: Date) {
   return { rangeStart: start.toISOString(), rangeEnd: end.toISOString() };
 }
 
-function buildGroupMarkers(meetings: MeetingItem[]): string[] {
-  const colors = new Set<string>();
-  for (const meeting of meetings) {
-    colors.add(meeting.groupColor);
-  }
-  return [...colors];
-}
-
 const GROUP_COLORS = [
   "#9EEEFF",
   "#74D8F2",
@@ -583,7 +613,14 @@ function GroupAvatar({
     );
   }
   return (
-    <span style={{ ...avatarStyle, borderColor: color, background: "rgba(255,255,255,0.06)" }}>
+    <span
+      style={{
+        ...avatarStyle,
+        borderColor: color,
+        background: THEME.pageBgAlt,
+        color: THEME.text,
+      }}
+    >
       {initial}
     </span>
   );
@@ -621,6 +658,8 @@ function formatTimeLabelInTimeZone(date: Date, timeZone: string): string {
 const mainStyle: CSSProperties = {
   minHeight: "100vh",
   padding: "1.5rem 1rem 2rem",
+  background: `linear-gradient(165deg, ${THEME.pageBg} 0%, ${THEME.pageBgAlt} 55%, ${THEME.pageBg} 100%)`,
+  color: THEME.text,
 };
 
 const containerStyle: CSSProperties = {
@@ -638,13 +677,17 @@ const sideColumnStyle: CSSProperties = {
 };
 
 const panelStyle: CSSProperties = {
-  background:
-    "linear-gradient(180deg, rgba(37, 48, 66, 0.94) 0%, rgba(23, 31, 43, 0.92) 100%)",
-  border: "1px solid rgba(255, 255, 255, 0.18)",
-  borderRadius: "24px",
+  background: `linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.88) 0%,
+    rgba(255, 255, 255, 0.72) 100%
+  )`,
+  border: `1px solid ${THEME.surfaceBorder}`,
+  borderRadius: THEME.radiusPanel,
   padding: "1.25rem",
-  backdropFilter: "blur(14px)",
-  boxShadow: "0 24px 60px rgba(58, 72, 95, 0.22)",
+  backdropFilter: `saturate(1.15) blur(${THEME.glassBlur})`,
+  WebkitBackdropFilter: `saturate(1.15) blur(${THEME.glassBlur})`,
+  boxShadow: THEME.shadowPanel,
 };
 
 const headerRowStyle: CSSProperties = {
@@ -658,32 +701,36 @@ const headerRowStyle: CSSProperties = {
 const titleStyle: CSSProperties = {
   margin: 0,
   fontSize: "1.5rem",
-  color: "var(--text)",
+  color: THEME.text,
+  letterSpacing: "-0.02em",
 };
 
 const subtitleStyle: CSSProperties = {
   margin: "0.35rem 0 0",
-  color: "var(--muted)",
+  color: THEME.textMuted,
   fontSize: "0.92rem",
 };
 
 const badgeStyle: CSSProperties = {
-  border: "1px solid rgba(255, 255, 255, 0.16)",
+  border: `1px solid ${THEME.surfaceBorder}`,
   borderRadius: "999px",
   padding: "0.35rem 0.7rem",
   fontSize: "0.82rem",
   whiteSpace: "nowrap",
-  background: "rgba(236, 242, 248, 0.06)",
+  background: THEME.surface,
+  color: THEME.textMuted,
+  boxShadow: THEME.shadowCard,
 };
 
 const errorBoxStyle: CSSProperties = {
-  background: "rgba(220, 70, 70, 0.12)",
-  border: "1px solid rgba(220, 70, 70, 0.4)",
-  color: "#ffb4b4",
+  background: THEME.errorBg,
+  border: `1px solid ${THEME.errorBorder}`,
+  color: THEME.errorText,
   padding: "0.75rem 1rem",
-  borderRadius: "10px",
+  borderRadius: THEME.radiusControl,
   marginBottom: "1rem",
   fontSize: "0.9rem",
+  boxShadow: THEME.shadowCard,
 };
 
 const monthBarStyle: CSSProperties = {
@@ -696,16 +743,19 @@ const monthBarStyle: CSSProperties = {
 
 const monthLabelStyle: CSSProperties = {
   fontSize: "1rem",
-  color: "var(--text)",
+  color: THEME.text,
+  fontWeight: 700,
 };
 
 const ghostButtonStyle: CSSProperties = {
-  background: "rgba(236, 242, 248, 0.08)",
-  color: "var(--text)",
-  border: "1px solid rgba(255,255,255,0.14)",
-  borderRadius: "14px",
-  padding: "0.55rem 0.8rem",
+  background: THEME.surface,
+  color: THEME.text,
+  border: `1px solid ${THEME.surfaceBorder}`,
+  borderRadius: THEME.radiusControl,
+  padding: "0.55rem 0.85rem",
   cursor: "pointer",
+  fontWeight: 600,
+  boxShadow: THEME.shadowCard,
 };
 
 const calendarScrollStyle: CSSProperties = {
@@ -721,33 +771,55 @@ const calendarStyle: CSSProperties = {
 
 const weekdayStyle: CSSProperties = {
   textAlign: "center",
-  color: "var(--muted)",
+  color: THEME.textMuted,
   fontSize: "0.85rem",
   paddingBottom: "0.35rem",
+  fontWeight: 600,
 };
 
 const dayCellStyle: CSSProperties = {
   minHeight: "5.25rem",
-  borderRadius: "16px",
-  border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: THEME.radiusDay,
+  border: `1px solid ${THEME.surfaceBorder}`,
   padding: "0.6rem",
-  color: "var(--text)",
+  color: THEME.text,
   display: "flex",
   flexDirection: "column",
   alignItems: "flex-start",
   gap: "0.35rem",
   cursor: "pointer",
+  transition: "border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease",
+};
+
+const dayNumberRowStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.35rem",
 };
 
 const dayNumberStyle: CSSProperties = {
   fontSize: "0.95rem",
   fontWeight: 700,
+  color: THEME.text,
+};
+
+const todayBadgeStyle: CSSProperties = {
+  fontSize: "0.62rem",
+  fontWeight: 700,
+  lineHeight: 1,
+  color: THEME.textMuted,
+  background: `rgba(${THEME.accentRgb}, 0.14)`,
+  border: `1px solid rgba(${THEME.accentRgb}, 0.28)`,
+  borderRadius: "6px",
+  padding: "0.15rem 0.28rem",
+  letterSpacing: "0.04em",
 };
 
 const meetingCountStyle: CSSProperties = {
   fontSize: "0.72rem",
-  color: "var(--muted)",
+  color: THEME.textMuted,
   textAlign: "left",
+  fontWeight: 600,
 };
 
 const markerWrapStyle: CSSProperties = {
@@ -764,20 +836,22 @@ const markerRowStyle: CSSProperties = {
 };
 
 const markerDotStyle: CSSProperties = {
-  width: "8px",
-  height: "8px",
+  width: "9px",
+  height: "9px",
   borderRadius: "999px",
-  boxShadow: "0 0 0 1px rgba(0,0,0,0.18)",
-};
-
-const markerMoreStyle: CSSProperties = {
-  fontSize: "0.72rem",
-  color: "var(--muted)",
+  background: THEME.accent,
+  boxShadow: `
+    0 0 0 1px rgba(255, 255, 255, 0.65),
+    0 0 10px rgba(${THEME.accentRgb}, 0.75),
+    0 0 18px rgba(${THEME.accentRgb}, 0.45)
+  `,
 };
 
 const sectionTitleStyle: CSSProperties = {
   margin: "0 0 0.9rem",
   fontSize: "1.05rem",
+  color: THEME.text,
+  fontWeight: 700,
 };
 
 const stackStyle: CSSProperties = {
@@ -787,37 +861,40 @@ const stackStyle: CSSProperties = {
 };
 
 const meetingCardStyle: CSSProperties = {
-  borderRadius: "16px",
-  border: "1px solid rgba(255,255,255,0.1)",
-  background: "rgba(236, 242, 248, 0.06)",
+  borderRadius: THEME.radiusCard,
+  border: `1px solid ${THEME.surfaceBorder}`,
+  background: THEME.surface,
   padding: "0.85rem 0.9rem",
+  boxShadow: THEME.shadowCard,
 };
 
 const meetingTimeStyle: CSSProperties = {
   fontSize: "0.82rem",
-  color: "var(--accent)",
+  color: THEME.accent,
   marginBottom: "0.25rem",
+  fontWeight: 700,
 };
 
 const meetingTitleStyle: CSSProperties = {
   fontWeight: 700,
   marginBottom: "0.25rem",
+  color: THEME.text,
 };
 
 const meetingMetaStyle: CSSProperties = {
   fontSize: "0.86rem",
-  color: "var(--muted)",
+  color: THEME.textMuted,
 };
 
 const meetingOwnerStyle: CSSProperties = {
   marginTop: "0.3rem",
   fontSize: "0.82rem",
-  color: "var(--text)",
+  color: THEME.text,
 };
 
 const emptyStyle: CSSProperties = {
   margin: 0,
-  color: "var(--muted)",
+  color: THEME.textMuted,
 };
 
 const chipBarStyle: CSSProperties = {
@@ -831,12 +908,14 @@ const chipStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: "0.45rem",
-  padding: "0.4rem 0.55rem",
+  padding: "0.45rem 0.65rem",
   borderRadius: "999px",
-  border: "1px solid rgba(255,255,255,0.12)",
-  background: "rgba(236, 242, 248, 0.06)",
-  color: "var(--text)",
+  border: `1px solid ${THEME.surfaceBorder}`,
+  background: THEME.surface,
+  color: THEME.text,
   cursor: "pointer",
+  fontWeight: 600,
+  boxShadow: THEME.shadowCard,
 };
 
 const chipLabelStyle: CSSProperties = {
@@ -851,7 +930,7 @@ const chipDotStyle: CSSProperties = {
   width: "10px",
   height: "10px",
   borderRadius: "999px",
-  boxShadow: "0 0 0 1px rgba(0,0,0,0.14)",
+  boxShadow: `0 0 0 1px rgba(255,255,255,0.9), 0 0 8px rgba(${THEME.accentRgb}, 0.35)`,
 };
 
 const avatarStyle: CSSProperties = {
@@ -859,14 +938,15 @@ const avatarStyle: CSSProperties = {
   height: "22px",
   borderRadius: "999px",
   objectFit: "cover",
-  border: "1px solid rgba(255,255,255,0.18)",
+  border: `1px solid ${THEME.surfaceBorder}`,
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
   fontSize: "0.75rem",
   fontWeight: 700,
-  color: "var(--text)",
+  color: THEME.text,
   flexShrink: 0,
+  boxShadow: THEME.shadowCard,
 };
 
 const groupPillStyle: CSSProperties = {
@@ -875,8 +955,8 @@ const groupPillStyle: CSSProperties = {
   gap: "0.35rem",
   padding: "0.2rem 0.5rem",
   borderRadius: "999px",
-  border: "1px solid rgba(255,255,255,0.12)",
-  background: "rgba(255,255,255,0.05)",
+  border: `1px solid ${THEME.surfaceBorder}`,
+  background: THEME.surfaceSubtle,
 };
 
 const groupPillDotStyle: CSSProperties = {
@@ -887,5 +967,6 @@ const groupPillDotStyle: CSSProperties = {
 
 const metaDividerStyle: CSSProperties = {
   margin: "0 0.35rem",
-  opacity: 0.7,
+  opacity: 0.55,
+  color: THEME.textMuted,
 };
