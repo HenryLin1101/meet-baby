@@ -1,4 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- 與 lib/liff/liffUiTheme.ts LIFF_UI_THEME.pageBg 一致（Flex 泡泡底） -->
+  <rect width="48" height="48" fill="#F0F2F5"/>
   <circle cx="24" cy="24" r="16" stroke="#4A5568" stroke-width="2.5"/>
   <path d="M24 16v10l6 4" stroke="#4A5568" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

@@ -93,7 +93,7 @@ function buildFallbackFlexMessage(lineGroupId?: string): messagingApi.FlexMessag
             contents: [
               {
                 type: "image",
-                url: `${WINDOW_LOCATION_ORIGIN}/icons/calendar_add_liff.png?v=2`,
+                url: `${WINDOW_LOCATION_ORIGIN}/icons/calendar_add_liff.png?v=3`,
                 size: "50px",
                 aspectMode: "fit",
                 aspectRatio: "1:1",
@@ -124,7 +124,7 @@ function buildFallbackFlexMessage(lineGroupId?: string): messagingApi.FlexMessag
             contents: [
               {
                 type: "image",
-                url: `${WINDOW_LOCATION_ORIGIN}/icons/dashboard_liff.png?v=2`,
+                url: `${WINDOW_LOCATION_ORIGIN}/icons/dashboard_liff.png?v=3`,
                 size: "50px",
                 aspectMode: "fit",
                 aspectRatio: "1:1",
@@ -155,7 +155,7 @@ function buildFallbackFlexMessage(lineGroupId?: string): messagingApi.FlexMessag
             contents: [
               {
                 type: "image",
-                url: `${WINDOW_LOCATION_ORIGIN}/icons/event_upcoming_liff.png?v=2`,
+                url: `${WINDOW_LOCATION_ORIGIN}/icons/event_upcoming_liff.png?v=3`,
                 size: "50px",
                 aspectMode: "fit",
                 aspectRatio: "1:1",
