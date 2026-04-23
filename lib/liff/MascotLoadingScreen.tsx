@@ -21,7 +21,7 @@ const TRAIL_KEYFRAMES = `
 const DOT_COUNT = 6;
 
 /**
- * 全螢幕載入：中央吉祥物 + 右上角點點往右上延伸循環動畫。
+ * 全螢幕載入：白底、中央吉祥物、右上角點點往右上循環（LIFF 首頁 / Dashboard / 預約會議共用）。
  */
 export default function MascotLoadingScreen() {
   return (
@@ -31,6 +31,7 @@ export default function MascotLoadingScreen() {
         role="status"
         aria-live="polite"
         aria-busy="true"
+        aria-label="載入中"
         style={{
           position: "fixed",
           inset: 0,
@@ -39,7 +40,7 @@ export default function MascotLoadingScreen() {
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          background: `linear-gradient(165deg, ${T.pageBg} 0%, ${T.pageBgAlt} 55%, ${T.pageBg} 100%)`,
+          background: T.surface,
           padding: "1.5rem",
           paddingTop: "max(1.5rem, env(safe-area-inset-top))",
           paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
@@ -90,18 +91,6 @@ export default function MascotLoadingScreen() {
             pointerEvents: "none",
           }}
         />
-        <p
-          style={{
-            marginTop: "1rem",
-            marginBottom: 0,
-            fontSize: "0.95rem",
-            fontWeight: 700,
-            color: T.textMuted,
-            letterSpacing: "0.06em",
-          }}
-        >
-          載入中…
-        </p>
       </div>
     </>
   );

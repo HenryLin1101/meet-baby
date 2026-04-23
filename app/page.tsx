@@ -7,6 +7,8 @@ import {
   MISSING_LIFF_ENV_MSG,
   resolveLiffRedirectPath,
 } from "@/lib/liff/utils";
+import MascotLoadingScreen from "@/lib/liff/MascotLoadingScreen";
+import { LIFF_UI_THEME as T } from "@/lib/liff/liffUiTheme";
 
 type Status = "loading" | "redirecting" | "error";
 
@@ -40,59 +42,40 @@ export default function HomePage() {
     };
   }, []);
 
+  if (status === "loading" || status === "redirecting") {
+    return <MascotLoadingScreen />;
+  }
+
   return (
-    <main style={mainStyle}>
-      <div style={cardStyle}>
-        <h1 style={titleStyle}>米特寶寶</h1>
-        <p style={subtitleStyle}>
-          {status === "redirecting" || status === "loading"
-            ? "載入中..."
-            : "載入失敗"}
-        </p>
-        {status === "error" && <div style={errorBoxStyle}>{errorMsg}</div>}
+    <main style={errorMainStyle}>
+      <div style={errorCardStyle}>
+        <p style={errorTextStyle}>{errorMsg}</p>
       </div>
     </main>
   );
 }
 
-const mainStyle: CSSProperties = {
+const errorMainStyle: CSSProperties = {
   minHeight: "100vh",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   padding: "2rem 1.25rem",
+  background: T.surface,
 };
 
-const cardStyle: CSSProperties = {
+const errorCardStyle: CSSProperties = {
   maxWidth: "30rem",
   width: "100%",
-  background:
-    "linear-gradient(180deg, rgba(37, 48, 66, 0.94) 0%, rgba(23, 31, 43, 0.92) 100%)",
-  border: "1px solid rgba(255, 255, 255, 0.18)",
-  borderRadius: "24px",
-  padding: "2rem",
-  backdropFilter: "blur(14px)",
-  color: "var(--text)",
-  boxShadow: "0 24px 60px rgba(58, 72, 95, 0.22)",
+  border: `1px solid ${T.surfaceBorder}`,
+  borderRadius: T.radiusPanel,
+  padding: "1.5rem",
+  boxShadow: T.shadowCard,
 };
 
-const titleStyle: CSSProperties = {
-  margin: "0 0 0.5rem",
-  fontSize: "1.75rem",
-  color: "var(--text)",
-};
-
-const subtitleStyle: CSSProperties = {
+const errorTextStyle: CSSProperties = {
   margin: 0,
-  color: "var(--muted)",
-};
-
-const errorBoxStyle: CSSProperties = {
-  background: "rgba(220, 70, 70, 0.12)",
-  border: "1px solid rgba(220, 70, 70, 0.4)",
-  color: "#ffb4b4",
-  padding: "0.75rem 1rem",
-  borderRadius: "10px",
-  marginTop: "1rem",
-  fontSize: "0.9rem",
+  color: T.errorText,
+  fontSize: "0.95rem",
+  lineHeight: 1.5,
 };
