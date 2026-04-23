@@ -400,13 +400,17 @@ export default function DashboardLiffPage() {
           <div style={panelStyle}>
             <h2 style={sectionTitleStyle}>{selectedDateKey} 的會議</h2>
             {selectedMeetings.length === 0 ? (
-              <p style={emptyStyle}>這一天沒有安排會議。</p>
+              <p style={emptyStyle}>這一天沒有安排會議，要陪米特寶寶聊聊天嗎？</p>
             ) : (
               <div style={stackStyle}>
                 {selectedMeetings
                   .slice()
                   .sort((a, b) => a.startsAtIso.localeCompare(b.startsAtIso))
-                  .map((meeting) => (
+                  .map((meeting) => {
+                    const locationText = meeting.location?.trim() ?? "";
+                    const hasLocation =
+                      Boolean(locationText) && locationText !== "未提供地點";
+                    return (
                     <article key={meeting.id} style={meetingCardCompactStyle}>
                       <div style={meetingTitleStyle}>{meeting.title}</div>
                       <div style={meetingCompactRowStyle}>
@@ -419,11 +423,13 @@ export default function DashboardLiffPage() {
                         />
                         <span style={meetingCompactMetaStyle}>{meeting.groupName}</span>
                       </div>
-                      <div style={meetingCompactMetaStyle}>
-                        {meeting.date} {meeting.time}
-                      </div>
+                      <div style={meetingCompactMetaStyle}>{meeting.time}</div>
+                      {hasLocation ? (
+                        <div style={meetingCompactMetaStyle}>{locationText}</div>
+                      ) : null}
                     </article>
-                  ))}
+                    );
+                  })}
               </div>
             )}
           </div>

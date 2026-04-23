@@ -8,6 +8,7 @@ import {
   type CSSProperties,
 } from "react";
 import Image from "next/image";
+import { LIFF_UI_THEME as T } from "@/lib/liff/liffUiTheme";
 
 export type MemberMultiSelectMember = {
   userId: number;
@@ -48,13 +49,12 @@ function MemberAvatar({
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    background:
-      "linear-gradient(135deg, rgba(158, 238, 255, 0.34) 0%, rgba(116, 216, 242, 0.22) 100%)",
-    color: "#d8f8ff",
+    background: `linear-gradient(135deg, rgba(${T.accentRgb}, 0.18) 0%, rgba(${T.accentRgb}, 0.08) 100%)`,
+    color: T.text,
     fontSize: size <= 28 ? "0.72rem" : "0.8rem",
     fontWeight: 700,
-    border: "1px solid rgba(255,255,255,0.14)",
-    boxShadow: "0 8px 18px rgba(10, 16, 24, 0.2)",
+    border: `1px solid ${T.surfaceBorder}`,
+    boxShadow: T.shadowCard,
   };
 
   if (pictureUrl) {
@@ -246,28 +246,31 @@ const triggerStyle: CSSProperties = {
   gap: "0.85rem",
   padding: "0.9rem 1rem",
   textAlign: "left",
-  background:
-    "linear-gradient(180deg, rgba(236, 242, 248, 0.1) 0%, rgba(236, 242, 248, 0.06) 100%)",
-  border: "1px solid rgba(255, 255, 255, 0.16)",
-  borderRadius: "16px",
-  color: "var(--text)",
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
+  background: T.surface,
+  border: `1px solid ${T.surfaceBorder}`,
+  borderRadius: T.radiusInput,
+  color: T.text,
+  boxShadow: T.shadowCard,
+  minHeight: "2.85rem",
+  WebkitTapHighlightColor: "transparent",
 };
 
 const triggerLabelStyle: CSSProperties = {
   fontSize: "0.78rem",
-  color: "var(--muted)",
+  color: T.textMuted,
   marginBottom: "0.2rem",
 };
 
 const triggerValueStyle: CSSProperties = {
   fontSize: "0.98rem",
   fontWeight: 600,
+  color: T.text,
 };
 
 const triggerMetaStyle: CSSProperties = {
   fontSize: "0.82rem",
-  color: "#8ce1e6",
+  color: T.accent,
+  fontWeight: 700,
   whiteSpace: "nowrap",
 };
 
@@ -283,9 +286,11 @@ const chipStyle: CSSProperties = {
   gap: "0.45rem",
   padding: "0.35rem 0.55rem 0.35rem 0.35rem",
   borderRadius: "999px",
-  border: "1px solid rgba(158, 238, 255, 0.18)",
-  background: "rgba(158, 238, 255, 0.08)",
-  color: "var(--text)",
+  border: `1px solid rgba(${T.accentRgb}, 0.35)`,
+  background: `rgba(${T.accentRgb}, 0.1)`,
+  color: T.text,
+  minHeight: "2.25rem",
+  WebkitTapHighlightColor: "transparent",
 };
 
 const chipTextStyle: CSSProperties = {
@@ -295,11 +300,10 @@ const chipTextStyle: CSSProperties = {
 
 const panelStyle: CSSProperties = {
   padding: "0.8rem",
-  borderRadius: "18px",
-  background:
-    "linear-gradient(180deg, rgba(21, 30, 42, 0.96) 0%, rgba(15, 22, 31, 0.98) 100%)",
-  border: "1px solid rgba(255,255,255,0.12)",
-  boxShadow: "0 18px 34px rgba(5, 10, 16, 0.28)",
+  borderRadius: T.radiusPanel,
+  background: T.surface,
+  border: `1px solid ${T.surfaceBorder}`,
+  boxShadow: T.shadowPanel,
   display: "flex",
   flexDirection: "column",
   gap: "0.7rem",
@@ -308,17 +312,19 @@ const panelStyle: CSSProperties = {
 const searchInputStyle: CSSProperties = {
   width: "100%",
   padding: "0.72rem 0.85rem",
-  borderRadius: "12px",
-  border: "1px solid rgba(255,255,255,0.12)",
-  background: "rgba(236, 242, 248, 0.08)",
-  color: "var(--text)",
+  borderRadius: T.radiusControl,
+  border: `1px solid ${T.surfaceBorder}`,
+  background: T.surfaceSubtle,
+  color: T.text,
   fontSize: "0.95rem",
+  minHeight: "2.75rem",
+  boxSizing: "border-box",
 };
 
 const optionListStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "0.55rem",
+  gap: "0.5rem",
   overflowY: "auto",
 };
 
@@ -327,18 +333,20 @@ const optionStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: "0.75rem",
-  padding: "0.7rem 0.8rem",
-  borderRadius: "14px",
-  border: "1px solid rgba(255,255,255,0.08)",
-  background: "rgba(255,255,255,0.04)",
-  color: "var(--text)",
+  padding: "0.75rem 0.85rem",
+  borderRadius: T.radiusControl,
+  border: `1px solid ${T.surfaceBorder}`,
+  background: T.surfaceSubtle,
+  color: T.text,
   textAlign: "left",
+  minHeight: "2.85rem",
+  WebkitTapHighlightColor: "transparent",
 };
 
 const selectedOptionStyle: CSSProperties = {
-  border: "1px solid rgba(140, 225, 230, 0.3)",
-  background: "rgba(140, 225, 230, 0.12)",
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+  border: `1px solid rgba(${T.accentRgb}, 0.5)`,
+  background: `rgba(${T.accentRgb}, 0.1)`,
+  boxShadow: T.shadowCard,
 };
 
 const optionTextWrapStyle: CSSProperties = {
@@ -352,27 +360,30 @@ const optionTextWrapStyle: CSSProperties = {
 const optionTitleStyle: CSSProperties = {
   fontSize: "0.95rem",
   fontWeight: 600,
+  color: T.text,
 };
 
 const optionSubtleStyle: CSSProperties = {
   fontSize: "0.78rem",
-  color: "var(--muted)",
+  color: T.textMuted,
 };
 
 const selectionPillStyle: CSSProperties = {
   padding: "0.25rem 0.55rem",
   borderRadius: "999px",
-  background: "rgba(255,255,255,0.08)",
-  color: "#d8f8ff",
+  background: T.surfaceSubtle,
+  border: `1px solid ${T.surfaceBorder}`,
+  color: T.textMuted,
   fontSize: "0.76rem",
+  fontWeight: 700,
   whiteSpace: "nowrap",
 };
 
 const emptyStateStyle: CSSProperties = {
   padding: "0.8rem",
-  borderRadius: "12px",
-  background: "rgba(255,255,255,0.03)",
-  color: "var(--muted)",
+  borderRadius: T.radiusControl,
+  background: T.surfaceSubtle,
+  color: T.textMuted,
   fontSize: "0.88rem",
   textAlign: "center",
 };
