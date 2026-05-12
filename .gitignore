@@ -19,3 +19,4 @@ out/
 .cert/
 localhost.pem
 localhost-key.pem
+.vercel
