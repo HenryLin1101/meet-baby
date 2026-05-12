@@ -20,3 +20,4 @@ out/
 localhost.pem
 localhost-key.pem
 .vercel
+.claude/
