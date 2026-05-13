@@ -135,6 +135,7 @@ export default function DashboardLiffPage() {
   const [newTodoDue, setNewTodoDue] = useState("");
   const [newTodoAssignees, setNewTodoAssignees] = useState<number[]>([]);
   const [addingTodo, setAddingTodo] = useState(false);
+  const [showAddTodoModal, setShowAddTodoModal] = useState(false);
   /** 避免每次 refetch 都把選取日期覆寫成 API 陣列第一筆（例如固定跳回 4/21） */
   const didApplyInitialSelection = useRef(false);
 
@@ -410,6 +411,7 @@ export default function DashboardLiffPage() {
         setNewTodoText("");
         setNewTodoDue("");
         setNewTodoAssignees([]);
+        setShowAddTodoModal(false);
       } else {
         console.error("[dashboard.addTodo]", await res.text());
       }
@@ -784,147 +786,228 @@ export default function DashboardLiffPage() {
           <div style={panelStyle}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.9rem" }}>
               <h2 style={{ ...sectionTitleStyle, margin: 0 }}>待辦事項</h2>
-              <div style={{ display: "inline-flex", borderRadius: "999px", overflow: "hidden", border: `1px solid ${THEME.surfaceBorder}`, background: THEME.surfaceSubtle }}>
-                {(["all", "mine"] as const).map((scope) => (
-                  <button
-                    key={scope}
-                    type="button"
-                    onClick={() => setTodoScope(scope)}
-                    aria-pressed={todoScope === scope}
-                    style={{
-                      border: "none",
-                      padding: "0.22rem 0.65rem",
-                      fontSize: "0.75rem",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      background: todoScope === scope ? THEME.accent : "transparent",
-                      color: todoScope === scope ? "#FFF" : THEME.textMuted,
-                      transition: "background 0.15s, color 0.15s",
-                    }}
-                  >
-                    {scope === "all" ? "全部" : "我的"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div
-              style={{
-                border: `1px solid ${THEME.surfaceBorder}`,
-                borderRadius: THEME.radiusCard,
-                padding: "0.6rem 0.7rem",
-                marginBottom: "0.75rem",
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.4rem",
-                background: THEME.surfaceSubtle,
-              }}
-            >
-              <div style={{ display: "flex", gap: "0.4rem" }}>
-                <input
-                  type="text"
-                  value={newTodoText}
-                  onChange={(e) => setNewTodoText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleAddTodo();
-                  }}
-                  placeholder="新增待辦事項…"
-                  style={{
-                    flex: 1,
-                    fontSize: "0.85rem",
-                    border: `1px solid ${THEME.surfaceBorder}`,
-                    borderRadius: "8px",
-                    padding: "0.35rem 0.5rem",
-                    outline: "none",
-                    minWidth: 0,
-                    background: THEME.surface,
-                  }}
-                />
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 <button
                   type="button"
-                  onClick={handleAddTodo}
-                  disabled={addingTodo || !newTodoText.trim() || !newTodoGroupId}
+                  onClick={() => setShowAddTodoModal(true)}
                   style={{
                     background: THEME.accent,
                     color: "#FFF",
                     border: "none",
-                    borderRadius: "8px",
-                    padding: "0.35rem 0.7rem",
-                    fontSize: "0.85rem",
-                    fontWeight: 600,
-                    cursor: addingTodo || !newTodoText.trim() || !newTodoGroupId ? "not-allowed" : "pointer",
-                    opacity: addingTodo || !newTodoText.trim() || !newTodoGroupId ? 0.5 : 1,
-                    flexShrink: 0,
+                    borderRadius: "50%",
+                    width: "28px",
+                    height: "28px",
+                    fontSize: "1.1rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    lineHeight: 1,
+                    boxShadow: "0 2px 8px rgba(0, 194, 255, 0.3)",
+                    transition: "transform 0.15s, box-shadow 0.15s",
                   }}
+                  aria-label="新增待辦事項"
                 >
                   +
                 </button>
-              </div>
-              <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
-                <select
-                  value={newTodoGroupId}
-                  onChange={(e) => {
-                    setNewTodoGroupId(e.target.value);
-                    setNewTodoAssignees([]);
-                  }}
-                  style={{ ...todoSelectStyle, fontSize: "0.76rem" }}
-                  aria-label="選擇群組"
-                >
-                  <option value="">選擇群組</option>
-                  {groups.map((g) => (
-                    <option key={g.lineGroupId} value={g.lineGroupId}>
-                      {g.name?.trim() || "未命名群組"}
-                    </option>
+                <div style={{ display: "inline-flex", borderRadius: "999px", overflow: "hidden", border: `1px solid ${THEME.surfaceBorder}`, background: THEME.surfaceSubtle }}>
+                  {(["all", "mine"] as const).map((scope) => (
+                    <button
+                      key={scope}
+                      type="button"
+                      onClick={() => setTodoScope(scope)}
+                      aria-pressed={todoScope === scope}
+                      style={{
+                        border: "none",
+                        padding: "0.22rem 0.65rem",
+                        fontSize: "0.75rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        background: todoScope === scope ? THEME.accent : "transparent",
+                        color: todoScope === scope ? "#FFF" : THEME.textMuted,
+                        transition: "background 0.15s, color 0.15s",
+                      }}
+                    >
+                      {scope === "all" ? "全部" : "我的"}
+                    </button>
                   ))}
-                </select>
-                <input
-                  type="date"
-                  value={newTodoDue}
-                  onChange={(e) => setNewTodoDue(e.target.value)}
-                  style={{ ...todoDateInputStyle, fontSize: "0.76rem" }}
-                  aria-label="截止日期"
-                />
-                <select
-                  value=""
-                  onChange={(e) => {
-                    const uid = Number(e.target.value);
-                    if (uid && !newTodoAssignees.includes(uid)) {
-                      setNewTodoAssignees((prev) => [...prev, uid]);
-                    }
-                  }}
-                  style={{ ...todoSelectStyle, fontSize: "0.76rem" }}
-                  aria-label="指派成員"
-                >
-                  <option value="">指派成員</option>
-                  {(groupMembers[newTodoGroupId] ?? [])
-                    .filter((m) => !newTodoAssignees.includes(m.userId))
-                    .map((m) => (
-                      <option key={m.userId} value={m.userId}>
-                        {m.displayName}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              {newTodoAssignees.length > 0 && (
-                <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
-                  {newTodoAssignees.map((uid) => {
-                    const m = (groupMembers[newTodoGroupId] ?? []).find((x) => x.userId === uid);
-                    return (
-                      <span key={uid} style={assigneeChipStyle}>
-                        {m?.displayName ?? "?"}
-                        <button
-                          type="button"
-                          onClick={() => setNewTodoAssignees((prev) => prev.filter((id) => id !== uid))}
-                          style={assigneeChipRemoveStyle}
-                        >
-                          ✕
-                        </button>
-                      </span>
-                    );
-                  })}
                 </div>
-              )}
+              </div>
             </div>
+
+            {showAddTodoModal && (
+              <div
+                style={{
+                  position: "fixed",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: "rgba(0, 0, 0, 0.45)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 9999,
+                  padding: "1rem",
+                }}
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) {
+                    setShowAddTodoModal(false);
+                  }
+                }}
+              >
+                <div
+                  style={{
+                    background: THEME.surface,
+                    borderRadius: THEME.radiusPanel,
+                    padding: "1.5rem",
+                    width: "100%",
+                    maxWidth: "380px",
+                    boxShadow: THEME.shadowPanel,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "1rem",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: THEME.text }}>
+                      新增待辦事項
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddTodoModal(false)}
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        fontSize: "1.2rem",
+                        color: THEME.textMuted,
+                        cursor: "pointer",
+                        padding: "0.2rem",
+                        lineHeight: 1,
+                      }}
+                      aria-label="關閉"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                    <div>
+                      <label style={modalLabelStyle}>待辦事項</label>
+                      <input
+                        type="text"
+                        value={newTodoText}
+                        onChange={(e) => setNewTodoText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleAddTodo();
+                        }}
+                        placeholder="輸入待辦事項內容…"
+                        autoFocus
+                        style={modalInputStyle}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={modalLabelStyle}>群組</label>
+                      <select
+                        value={newTodoGroupId}
+                        onChange={(e) => {
+                          setNewTodoGroupId(e.target.value);
+                          setNewTodoAssignees([]);
+                        }}
+                        style={modalSelectStyle}
+                        aria-label="選擇群組"
+                      >
+                        <option value="">選擇群組</option>
+                        {groups.map((g) => (
+                          <option key={g.lineGroupId} value={g.lineGroupId}>
+                            {g.name?.trim() || "未命名群組"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={modalLabelStyle}>截止日期</label>
+                      <input
+                        type="date"
+                        value={newTodoDue}
+                        onChange={(e) => setNewTodoDue(e.target.value)}
+                        style={modalInputStyle}
+                        aria-label="截止日期"
+                      />
+                    </div>
+
+                    <div>
+                      <label style={modalLabelStyle}>指派成員</label>
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const uid = Number(e.target.value);
+                          if (uid && !newTodoAssignees.includes(uid)) {
+                            setNewTodoAssignees((prev) => [...prev, uid]);
+                          }
+                        }}
+                        style={modalSelectStyle}
+                        aria-label="指派成員"
+                        disabled={!newTodoGroupId}
+                      >
+                        <option value="">{newTodoGroupId ? "選擇成員" : "請先選擇群組"}</option>
+                        {(groupMembers[newTodoGroupId] ?? [])
+                          .filter((m) => !newTodoAssignees.includes(m.userId))
+                          .map((m) => (
+                            <option key={m.userId} value={m.userId}>
+                              {m.displayName}
+                            </option>
+                          ))}
+                      </select>
+                      {newTodoAssignees.length > 0 && (
+                        <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                          {newTodoAssignees.map((uid) => {
+                            const m = (groupMembers[newTodoGroupId] ?? []).find((x) => x.userId === uid);
+                            return (
+                              <span key={uid} style={assigneeChipStyle}>
+                                {m?.displayName ?? "?"}
+                                <button
+                                  type="button"
+                                  onClick={() => setNewTodoAssignees((prev) => prev.filter((id) => id !== uid))}
+                                  style={assigneeChipRemoveStyle}
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAddTodo}
+                    disabled={addingTodo || !newTodoText.trim() || !newTodoGroupId}
+                    style={{
+                      background: THEME.accent,
+                      color: "#FFF",
+                      border: "none",
+                      borderRadius: "12px",
+                      padding: "0.65rem",
+                      fontSize: "0.9rem",
+                      fontWeight: 700,
+                      cursor: addingTodo || !newTodoText.trim() || !newTodoGroupId ? "not-allowed" : "pointer",
+                      opacity: addingTodo || !newTodoText.trim() || !newTodoGroupId ? 0.5 : 1,
+                      marginTop: "0.25rem",
+                      transition: "opacity 0.15s",
+                    }}
+                  >
+                    {addingTodo ? "新增中…" : "新增"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {pendingTodos.length === 0 ? (
               <p style={emptyStyle}>目前沒有未完成的待辦事項。</p>
@@ -1523,6 +1606,38 @@ const todoMetaStyle: CSSProperties = {
   gap: "0.2rem",
 };
 
+const modalLabelStyle: CSSProperties = {
+  display: "block",
+  fontSize: "0.78rem",
+  fontWeight: 600,
+  color: THEME.textMuted,
+  marginBottom: "0.3rem",
+};
+
+const modalInputStyle: CSSProperties = {
+  width: "100%",
+  fontSize: "0.88rem",
+  border: `1px solid ${THEME.surfaceBorder}`,
+  borderRadius: "10px",
+  padding: "0.5rem 0.65rem",
+  outline: "none",
+  background: THEME.surfaceSubtle,
+  color: THEME.text,
+  boxSizing: "border-box",
+};
+
+const modalSelectStyle: CSSProperties = {
+  width: "100%",
+  fontSize: "0.88rem",
+  border: `1px solid ${THEME.surfaceBorder}`,
+  borderRadius: "10px",
+  padding: "0.5rem 0.65rem",
+  background: THEME.surfaceSubtle,
+  color: THEME.text,
+  cursor: "pointer",
+  boxSizing: "border-box",
+};
+
 const todoSelectStyle: CSSProperties = {
   fontSize: "0.78rem",
   color: THEME.textMuted,
@@ -1589,19 +1704,26 @@ function TodoItemCard({
   onUpdateText: (text: string) => void;
   onUpdateGroup: (lineGroupId: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [cardEditing, setCardEditing] = useState(false);
+  const [editingText, setEditingText] = useState(false);
   const [editText, setEditText] = useState(todo.item);
   const currentIds = todo.assignedUsers.map((u) => u.userId);
 
+  const groupName = groups.find((g) => g.lineGroupId === todo.lineGroupId)?.name?.trim() || "未命名群組";
+
   function commitEdit() {
     const trimmed = editText.trim();
-    setEditing(false);
+    setEditingText(false);
     if (trimmed && trimmed !== todo.item) {
       onUpdateText(trimmed);
     } else {
       setEditText(todo.item);
     }
   }
+
+  const dueDateDisplay = todo.due && /^\d{4}-\d{2}-\d{2}/.test(todo.due)
+    ? todo.due.slice(0, 10)
+    : "";
 
   return (
     <article
@@ -1638,7 +1760,7 @@ function TodoItemCard({
       </button>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        {editing ? (
+        {editingText ? (
           <input
             type="text"
             value={editText}
@@ -1648,7 +1770,7 @@ function TodoItemCard({
               if (e.key === "Enter") commitEdit();
               if (e.key === "Escape") {
                 setEditText(todo.item);
-                setEditing(false);
+                setEditingText(false);
               }
             }}
             autoFocus
@@ -1667,9 +1789,9 @@ function TodoItemCard({
         ) : (
           <div
             onClick={() => {
-              if (!todo.isCompleted) {
+              if (!todo.isCompleted && cardEditing) {
                 setEditText(todo.item);
-                setEditing(true);
+                setEditingText(true);
               }
             }}
             style={{
@@ -1678,108 +1800,158 @@ function TodoItemCard({
               color: todo.isCompleted ? THEME.textMuted : THEME.text,
               textDecoration: todo.isCompleted ? "line-through" : "none",
               marginBottom: "0.25rem",
-              cursor: todo.isCompleted ? "default" : "pointer",
+              cursor: !todo.isCompleted && cardEditing ? "pointer" : "default",
             }}
           >
             {todo.item}
           </div>
         )}
 
-        <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
-          <span style={todoMetaStyle}>
-            <input
-              type="date"
-              value={todo.due && /^\d{4}-\d{2}-\d{2}/.test(todo.due) ? todo.due.slice(0, 10) : ""}
-              onChange={(e) => onUpdateDue(e.target.value)}
-              style={todoDateInputStyle}
-              aria-label="截止日期"
-            />
-          </span>
+        {cardEditing ? (
+          <>
+            <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
+              <span style={todoMetaStyle}>
+                <input
+                  type="date"
+                  value={dueDateDisplay}
+                  onChange={(e) => onUpdateDue(e.target.value)}
+                  style={todoDateInputStyle}
+                  aria-label="截止日期"
+                />
+              </span>
 
-          <span style={todoMetaStyle}>
-            <select
-              value=""
-              onChange={(e) => {
-                const uid = Number(e.target.value);
-                if (uid && !currentIds.includes(uid)) {
-                  onUpdateAssignees([...currentIds, uid]);
-                }
+              <span style={todoMetaStyle}>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const uid = Number(e.target.value);
+                    if (uid && !currentIds.includes(uid)) {
+                      onUpdateAssignees([...currentIds, uid]);
+                    }
+                  }}
+                  style={todoSelectStyle}
+                  aria-label="指派成員"
+                >
+                  <option value="">
+                    {currentIds.length === 0 ? "指派成員" : "+ 成員"}
+                  </option>
+                  {members
+                    .filter((m) => !currentIds.includes(m.userId))
+                    .map((m) => (
+                      <option key={m.userId} value={m.userId}>
+                        {m.displayName}
+                      </option>
+                    ))}
+                </select>
+              </span>
+            </div>
+
+            {todo.assignedUsers.length > 0 && (
+              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
+                {todo.assignedUsers.map((u) => (
+                  <span key={u.userId} style={assigneeChipStyle}>
+                    {u.displayName}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateAssignees(currentIds.filter((id) => id !== u.userId))
+                      }
+                      style={assigneeChipRemoveStyle}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.3rem",
+                marginTop: "0.3rem",
               }}
-              style={todoSelectStyle}
-              aria-label="指派成員"
             >
-              <option value="">
-                {currentIds.length === 0 ? "指派成員" : "+ 成員"}
-              </option>
-              {members
-                .filter((m) => !currentIds.includes(m.userId))
-                .map((m) => (
-                  <option key={m.userId} value={m.userId}>
-                    {m.displayName}
+              <span style={{ ...groupPillDotStyle, background: groupColor }} />
+              <select
+                value={todo.lineGroupId}
+                onChange={(e) => onUpdateGroup(e.target.value)}
+                style={{
+                  fontSize: "0.72rem",
+                  color: THEME.textMuted,
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+                aria-label="所屬群組"
+              >
+                {groups.map((g) => (
+                  <option key={g.lineGroupId} value={g.lineGroupId}>
+                    {g.name?.trim() || "未命名群組"}
                   </option>
                 ))}
-            </select>
-          </span>
-        </div>
-
-        {todo.assignedUsers.length > 0 && (
-          <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
-            {todo.assignedUsers.map((u) => (
-              <span key={u.userId} style={assigneeChipStyle}>
-                {u.displayName}
-                <button
-                  type="button"
-                  onClick={() =>
-                    onUpdateAssignees(currentIds.filter((id) => id !== u.userId))
-                  }
-                  style={assigneeChipRemoveStyle}
-                >
-                  ✕
-                </button>
+              </select>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.1rem" }}>
+              {dueDateDisplay && (
+                <span style={{ fontSize: "0.76rem", color: THEME.textMuted }}>
+                  📅 {dueDateDisplay}
+                </span>
+              )}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+                <span style={{ ...groupPillDotStyle, background: groupColor }} />
+                <span style={{ fontSize: "0.72rem", color: THEME.textMuted }}>{groupName}</span>
               </span>
-            ))}
-          </div>
-        )}
+            </div>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.3rem",
-            marginTop: "0.3rem",
-          }}
-        >
-          <span style={{ ...groupPillDotStyle, background: groupColor }} />
-          <select
-            value={todo.lineGroupId}
-            onChange={(e) => onUpdateGroup(e.target.value)}
-            style={{
-              fontSize: "0.72rem",
-              color: THEME.textMuted,
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
-            }}
-            aria-label="所屬群組"
-          >
-            {groups.map((g) => (
-              <option key={g.lineGroupId} value={g.lineGroupId}>
-                {g.name?.trim() || "未命名群組"}
-              </option>
-            ))}
-          </select>
-        </div>
+            {todo.assignedUsers.length > 0 && (
+              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
+                {todo.assignedUsers.map((u) => (
+                  <span key={u.userId} style={{ ...assigneeChipStyle, cursor: "default" }}>
+                    {u.displayName}
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      <button
-        type="button"
-        onClick={onDelete}
-        aria-label="刪除待辦事項"
-        style={todoDeleteBtnStyle}
-      >
-        ✕
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.15rem", flexShrink: 0, marginTop: "0.1rem" }}>
+        {!todo.isCompleted && (
+          <button
+            type="button"
+            onClick={() => setCardEditing((v) => !v)}
+            aria-label={cardEditing ? "完成編輯" : "編輯待辦事項"}
+            style={{
+              border: "none",
+              background: cardEditing ? `rgba(${THEME.accentRgb}, 0.12)` : "transparent",
+              color: cardEditing ? THEME.accent : THEME.textMuted,
+              cursor: "pointer",
+              fontSize: "0.82rem",
+              padding: "0.2rem 0.3rem",
+              borderRadius: "6px",
+              lineHeight: 1,
+              transition: "background 0.15s, color 0.15s",
+            }}
+          >
+            ✎
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onDelete}
+          aria-label="刪除待辦事項"
+          style={todoDeleteBtnStyle}
+        >
+          ✕
+        </button>
+      </div>
     </article>
   );
 }
