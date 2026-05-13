@@ -918,7 +918,7 @@ export default function DashboardLiffPage() {
                         }}
                         placeholder="輸入待辦事項內容…"
                         autoFocus
-                        style={modalFieldStyle}
+                        style={modalInputStyle}
                       />
                     </div>
 
@@ -930,7 +930,7 @@ export default function DashboardLiffPage() {
                           setNewTodoGroupId(e.target.value);
                           setNewTodoAssignees([]);
                         }}
-                        style={modalFieldStyle}
+                        style={modalSelectStyle}
                         aria-label="選擇群組"
                       >
                         <option value="">選擇群組</option>
@@ -948,7 +948,7 @@ export default function DashboardLiffPage() {
                         type="date"
                         value={newTodoDue}
                         onChange={(e) => setNewTodoDue(e.target.value)}
-                        style={modalFieldStyle}
+                        style={modalInputStyle}
                         aria-label="截止日期"
                       />
                     </div>
@@ -963,7 +963,7 @@ export default function DashboardLiffPage() {
                             setNewTodoAssignees((prev) => [...prev, uid]);
                           }
                         }}
-                        style={modalFieldStyle}
+                        style={modalSelectStyle}
                         aria-label="指派成員"
                         disabled={!newTodoGroupId}
                       >
@@ -1604,9 +1604,9 @@ const todoDeleteBtnStyle: CSSProperties = {
   background: "transparent",
   color: THEME.textMuted,
   cursor: "pointer",
-  fontSize: "1.1rem",
-  padding: "0.3rem 0.4rem",
-  borderRadius: "8px",
+  fontSize: "0.85rem",
+  padding: "0.15rem 0.3rem",
+  borderRadius: "6px",
   flexShrink: 0,
   lineHeight: 1,
 };
@@ -1627,7 +1627,7 @@ const modalLabelStyle: CSSProperties = {
   marginBottom: "0.3rem",
 };
 
-const modalFieldStyle: CSSProperties = {
+const modalInputStyle: CSSProperties = {
   width: "100%",
   fontSize: "0.88rem",
   border: `1px solid ${THEME.surfaceBorder}`,
@@ -1637,7 +1637,18 @@ const modalFieldStyle: CSSProperties = {
   background: THEME.surfaceSubtle,
   color: THEME.text,
   boxSizing: "border-box",
+};
+
+const modalSelectStyle: CSSProperties = {
+  width: "100%",
+  fontSize: "0.88rem",
+  border: `1px solid ${THEME.surfaceBorder}`,
+  borderRadius: "10px",
+  padding: "0.5rem 0.65rem",
+  background: THEME.surfaceSubtle,
+  color: THEME.text,
   cursor: "pointer",
+  boxSizing: "border-box",
 };
 
 const todoSelectStyle: CSSProperties = {
@@ -1712,7 +1723,6 @@ function TodoItemCard({
   const currentIds = todo.assignedUsers.map((u) => u.userId);
 
   const groupName = groups.find((g) => g.lineGroupId === todo.lineGroupId)?.name?.trim() || "未命名群組";
-  const dueDateDisplay = todo.due && /^\d{4}-\d{2}-\d{2}/.test(todo.due) ? todo.due.slice(0, 10) : "";
 
   function commitEdit() {
     const trimmed = editText.trim();
@@ -1723,6 +1733,10 @@ function TodoItemCard({
       setEditText(todo.item);
     }
   }
+
+  const dueDateDisplay = todo.due && /^\d{4}-\d{2}-\d{2}/.test(todo.due)
+    ? todo.due.slice(0, 10)
+    : "";
 
   return (
     <article
@@ -1818,6 +1832,7 @@ function TodoItemCard({
                   aria-label="截止日期"
                 />
               </span>
+
               <span style={todoMetaStyle}>
                 <select
                   value=""
@@ -1863,7 +1878,14 @@ function TodoItemCard({
               </div>
             )}
 
-            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", marginTop: "0.3rem" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.3rem",
+                marginTop: "0.3rem",
+              }}
+            >
               <span style={{ ...groupPillDotStyle, background: groupColor }} />
               <select
                 value={todo.lineGroupId}
@@ -1890,9 +1912,8 @@ function TodoItemCard({
           <>
             <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.1rem" }}>
               {dueDateDisplay && (
-                <span style={{ fontSize: "0.76rem", color: THEME.textMuted, display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                  {dueDateDisplay}
+                <span style={{ fontSize: "0.76rem", color: THEME.textMuted }}>
+                  📅 {dueDateDisplay}
                 </span>
               )}
               <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
@@ -1925,9 +1946,9 @@ function TodoItemCard({
               background: cardEditing ? `rgba(${THEME.accentRgb}, 0.12)` : "transparent",
               color: cardEditing ? THEME.accent : THEME.textMuted,
               cursor: "pointer",
-              fontSize: "1.1rem",
-              padding: "0.3rem 0.4rem",
-              borderRadius: "8px",
+              fontSize: "0.82rem",
+              padding: "0.2rem 0.3rem",
+              borderRadius: "6px",
               lineHeight: 1,
               transition: "background 0.15s, color 0.15s",
             }}
