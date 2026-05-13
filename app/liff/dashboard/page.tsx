@@ -918,7 +918,7 @@ export default function DashboardLiffPage() {
                         }}
                         placeholder="輸入待辦事項內容…"
                         autoFocus
-                        style={modalInputStyle}
+                        style={modalFieldStyle}
                       />
                     </div>
 
@@ -930,7 +930,7 @@ export default function DashboardLiffPage() {
                           setNewTodoGroupId(e.target.value);
                           setNewTodoAssignees([]);
                         }}
-                        style={modalSelectStyle}
+                        style={modalFieldStyle}
                         aria-label="選擇群組"
                       >
                         <option value="">選擇群組</option>
@@ -944,13 +944,29 @@ export default function DashboardLiffPage() {
 
                     <div>
                       <label style={modalLabelStyle}>截止日期</label>
-                      <input
-                        type="date"
-                        value={newTodoDue}
-                        onChange={(e) => setNewTodoDue(e.target.value)}
-                        style={modalInputStyle}
-                        aria-label="截止日期"
-                      />
+                      <div style={{ position: "relative" }}>
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke={THEME.textMuted}
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          style={{ position: "absolute", left: "0.65rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+                        >
+                          <circle cx="12" cy="12" r="10"/>
+                          <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                        <input
+                          type="date"
+                          value={newTodoDue}
+                          onChange={(e) => setNewTodoDue(e.target.value)}
+                          style={{ ...modalFieldStyle, paddingLeft: "2.2rem" }}
+                          aria-label="截止日期"
+                        />
+                      </div>
                     </div>
 
                     <div>
@@ -963,7 +979,7 @@ export default function DashboardLiffPage() {
                             setNewTodoAssignees((prev) => [...prev, uid]);
                           }
                         }}
-                        style={modalSelectStyle}
+                        style={modalFieldStyle}
                         aria-label="指派成員"
                         disabled={!newTodoGroupId}
                       >
@@ -1604,9 +1620,9 @@ const todoDeleteBtnStyle: CSSProperties = {
   background: "transparent",
   color: THEME.textMuted,
   cursor: "pointer",
-  fontSize: "0.85rem",
-  padding: "0.15rem 0.3rem",
-  borderRadius: "6px",
+  fontSize: "1.15rem",
+  padding: "0.35rem 0.45rem",
+  borderRadius: "8px",
   flexShrink: 0,
   lineHeight: 1,
 };
@@ -1627,7 +1643,7 @@ const modalLabelStyle: CSSProperties = {
   marginBottom: "0.3rem",
 };
 
-const modalInputStyle: CSSProperties = {
+const modalFieldStyle: CSSProperties = {
   width: "100%",
   fontSize: "0.88rem",
   border: `1px solid ${THEME.surfaceBorder}`,
@@ -1637,18 +1653,7 @@ const modalInputStyle: CSSProperties = {
   background: THEME.surfaceSubtle,
   color: THEME.text,
   boxSizing: "border-box",
-};
-
-const modalSelectStyle: CSSProperties = {
-  width: "100%",
-  fontSize: "0.88rem",
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: "10px",
-  padding: "0.5rem 0.65rem",
-  background: THEME.surfaceSubtle,
-  color: THEME.text,
   cursor: "pointer",
-  boxSizing: "border-box",
 };
 
 const todoSelectStyle: CSSProperties = {
@@ -1912,8 +1917,9 @@ function TodoItemCard({
           <>
             <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.1rem" }}>
               {dueDateDisplay && (
-                <span style={{ fontSize: "0.76rem", color: THEME.textMuted }}>
-                  📅 {dueDateDisplay}
+                <span style={{ fontSize: "0.76rem", color: THEME.textMuted, display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  {dueDateDisplay}
                 </span>
               )}
               <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
@@ -1946,9 +1952,9 @@ function TodoItemCard({
               background: cardEditing ? `rgba(${THEME.accentRgb}, 0.12)` : "transparent",
               color: cardEditing ? THEME.accent : THEME.textMuted,
               cursor: "pointer",
-              fontSize: "0.82rem",
-              padding: "0.2rem 0.3rem",
-              borderRadius: "6px",
+              fontSize: "1.15rem",
+              padding: "0.35rem 0.45rem",
+              borderRadius: "8px",
               lineHeight: 1,
               transition: "background 0.15s, color 0.15s",
             }}
