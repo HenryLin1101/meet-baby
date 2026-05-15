@@ -1,5 +1,9 @@
 import { createGoogleOAuthState } from "@/lib/db/repository";
-import { buildGoogleOAuthConsentUrl, GOOGLE_DRIVE_READONLY_SCOPE } from "@/lib/google/oauth";
+import {
+  buildGoogleOAuthConsentUrl,
+  GOOGLE_CALENDAR_EVENTS_SCOPE,
+  GOOGLE_DRIVE_READONLY_SCOPE,
+} from "@/lib/google/oauth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,20 +24,36 @@ function redirect(url: string) {
   });
 }
 
+function isSafeRedirectUrl(value: string): boolean {
+  if (value === "line://nv/chat") return true;
+  try {
+    const parsed = new URL(value);
+    return (
+      parsed.protocol === "https:" &&
+      parsed.hostname === "liff.line.me"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const lineUserId = url.searchParams.get("lineUserId")?.trim();
   const summaryId = url.searchParams.get("summaryId")?.trim() ?? null;
+  const rawRedirectUrl = url.searchParams.get("redirectUrl")?.trim() ?? null;
 
   if (!lineUserId) {
     return new Response("Missing lineUserId", { status: 400 });
   }
 
+  const redirectUrl =
+    rawRedirectUrl && isSafeRedirectUrl(rawRedirectUrl)
+      ? rawRedirectUrl
+      : "line://nv/chat";
+
   const state = randomState();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
-  // Send user back to LINE app (chat list / last chat).
-  const redirectUrl = "line://nv/chat";
 
   await createGoogleOAuthState({
     lineUserId,
@@ -45,7 +65,7 @@ export async function GET(request: Request) {
 
   const authUrl = buildGoogleOAuthConsentUrl({
     state,
-    scopes: [GOOGLE_DRIVE_READONLY_SCOPE],
+    scopes: [GOOGLE_DRIVE_READONLY_SCOPE, GOOGLE_CALENDAR_EVENTS_SCOPE],
   });
 
   return redirect(authUrl);

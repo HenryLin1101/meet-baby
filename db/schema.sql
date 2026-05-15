@@ -108,6 +108,7 @@ ALTER TABLE events
   ADD COLUMN IF NOT EXISTS reminder_processing_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS reminder_last_error TEXT;
+  ADD COLUMN meet_url TEXT, ADD COLUMN calendar_event_id TEXT;
 
 CREATE TABLE IF NOT EXISTS event_attendees (
   id BIGSERIAL PRIMARY KEY,

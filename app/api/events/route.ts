@@ -1,9 +1,12 @@
 import {
   createEventWithAttendees,
+  getGoogleCredentialByLineUserId,
+  hasCalendarScope,
   setEventReminderSchedule,
   listGroupEvents,
   listLineUsersByIds,
   RepositoryError,
+  updateEventCalendarData,
   upsertLineUser,
 } from "@/lib/db/repository";
 import {
@@ -11,6 +14,8 @@ import {
   LineAuthError,
   verifyLineAccessToken,
 } from "@/lib/line/auth";
+import { createCalendarEventWithMeet } from "@/lib/google/calendar";
+import { refreshAccessToken } from "@/lib/google/oauth";
 import { buildMeetingCreatedMentionMessage } from "@/lib/line/eventNotifications";
 import { createMessagingClient } from "@/lib/line/messagingClient";
 import {
@@ -104,6 +109,30 @@ export async function POST(request: Request) {
       attendeeUserIds: input.attendeeUserIds,
       timezone: "Asia/Taipei",
     });
+    // Try to create Google Calendar event and get Meet URL (non-fatal).
+    let meetUrl: string | null = null;
+    try {
+      const credential = await getGoogleCredentialByLineUserId(verifiedUser.lineUserId);
+      if (credential && hasCalendarScope(credential)) {
+        const { accessToken } = await refreshAccessToken(credential.refreshToken);
+        const calResult = await createCalendarEventWithMeet({
+          accessToken,
+          title: createdEvent.title,
+          startsAt: createdEvent.startsAt,
+          location: createdEvent.location,
+          description: createdEvent.description,
+        });
+        await updateEventCalendarData({
+          eventId: createdEvent.eventId,
+          meetUrl: calResult.meetUrl,
+          calendarEventId: calResult.calendarEventId,
+        });
+        meetUrl = calResult.meetUrl;
+      }
+    } catch (err) {
+      console.error("[create-event.calendar]", err);
+    }
+
     const attendeeLineUsers = await listLineUsersByIds(input.attendeeUserIds);
 
     const summary = buildMeetingSummary({
@@ -131,6 +160,7 @@ export async function POST(request: Request) {
                   timezone: createdEvent.timezone,
                   location: createdEvent.location,
                   note: createdEvent.description,
+                  meetUrl,
                   attendees: attendeeLineUsers,
                 }),
               ]
@@ -162,6 +192,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         eventId: createdEvent.eventId,
+        meetUrl,
         notificationSent,
         reminderScheduled,
       },

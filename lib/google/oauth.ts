@@ -27,6 +27,9 @@ export function getGoogleOAuthRedirectUri(): string {
 export const GOOGLE_DRIVE_READONLY_SCOPE =
   "https://www.googleapis.com/auth/drive.readonly";
 
+export const GOOGLE_CALENDAR_EVENTS_SCOPE =
+  "https://www.googleapis.com/auth/calendar.events";
+
 export function buildGoogleOAuthConsentUrl(input: {
   state: string;
   scopes?: string[];

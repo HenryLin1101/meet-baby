@@ -65,6 +65,8 @@ type CreatedEventRow = {
   ends_at: string | null;
   timezone: string;
   attendee_display_names: string[];
+  meeting_url: string | null;
+  calendar_event_id: string | null;
 };
 
 type ListedEventRow = {
@@ -108,6 +110,7 @@ type EventReminderEventRow = {
   reminder_processing_at: string | null;
   reminder_sent_at: string | null;
   reminder_last_error: string | null;
+  meeting_url: string | null;
 };
 
 type EventReminderAttendeeRow = {
@@ -136,6 +139,8 @@ export type CreatedEvent = {
   endsAt: string | null;
   timezone: string;
   attendeeDisplayNames: string[];
+  meetUrl: string | null;
+  calendarEventId: string | null;
 };
 
 export type ListedEvent = {
@@ -182,6 +187,7 @@ export type EventReminderDetails = {
   reminderMessageId: string | null;
   reminderScheduledAt: string | null;
   reminderSentAt: string | null;
+  meetUrl: string | null;
   attendees: LineUserReference[];
 };
 
@@ -307,6 +313,9 @@ function toCreatedEvent(row: CreatedEventRow): CreatedEvent {
     attendeeDisplayNames: Array.isArray(row.attendee_display_names)
       ? row.attendee_display_names.map(String)
       : [],
+    meetUrl: row.meeting_url === null ? null : String(row.meeting_url),
+    calendarEventId:
+      row.calendar_event_id === null ? null : String(row.calendar_event_id),
   };
 }
 
@@ -908,7 +917,7 @@ export async function getEventReminderDetails(
   const { data: event, error: eventError } = await supabase
     .from("events")
     .select(
-      "id, group_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_scheduled_at, reminder_processing_at, reminder_sent_at, reminder_last_error"
+      "id, group_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_scheduled_at, reminder_processing_at, reminder_sent_at, reminder_last_error, meeting_url"
     )
     .eq("id", normalizedEventId)
     .maybeSingle<EventReminderEventRow>();
@@ -959,6 +968,7 @@ export async function getEventReminderDetails(
         : new Date(event.reminder_scheduled_at).toISOString(),
     reminderSentAt:
       event.reminder_sent_at === null ? null : new Date(event.reminder_sent_at).toISOString(),
+    meetUrl: event.meeting_url === null ? null : String(event.meeting_url),
     attendees,
   };
 }
@@ -1318,4 +1328,30 @@ export async function markEventSummaryFailed(input: {
     })
     .eq("id", summaryId);
   assertNoError(error, "更新會議總結失敗狀態失敗。");
+}
+
+export async function updateEventCalendarData(input: {
+  eventId: number;
+  meetUrl: string;
+  calendarEventId: string;
+}): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const eventId = requireFiniteNumber(input.eventId, "eventId");
+  const meetUrl = requireNonEmpty(input.meetUrl, "meetUrl");
+  const calendarEventId = requireNonEmpty(input.calendarEventId, "calendarEventId");
+
+  const { error } = await supabase
+    .from("events")
+    .update({ meeting_url: meetUrl, calendar_event_id: calendarEventId })
+    .eq("id", eventId);
+  assertNoError(error, "儲存 Google 日曆資訊失敗。");
+}
+
+export function hasCalendarScope(credential: GoogleCredential): boolean {
+  const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+  const tokens = (credential.scopes ?? "")
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return tokens.includes(CALENDAR_SCOPE);
 }

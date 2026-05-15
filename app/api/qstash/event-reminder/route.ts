@@ -61,6 +61,7 @@ async function handleReminderRequest(request: Request) {
           timezone: reminder.timezone,
           location: reminder.location,
           note: reminder.description,
+          meetUrl: reminder.meetUrl,
           attendees: reminder.attendees,
         }),
       ],

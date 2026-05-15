@@ -16,6 +16,8 @@ import MemberMultiSelect from "@/lib/tools/MemberMultiSelect";
 
 type Status =
   | "loading"
+  | "checkingCalendar"
+  | "calendarDisconnected"
   | "loadingMembers"
   | "ready"
   | "submitting"
@@ -45,6 +47,8 @@ export default function MeetingLiffPage() {
   const [accessToken, setAccessToken] = useState("");
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>([]);
+  const [consentPageUrl, setConsentPageUrl] = useState("");
+  const [createdMeetUrl, setCreatedMeetUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!LIFF_ID) return;
@@ -69,6 +73,29 @@ export default function MeetingLiffPage() {
 
         setGroupId(nextGroupId);
         setAccessToken(nextAccessToken);
+        setStatus("checkingCalendar");
+
+        // Check if the meeting creator has Google Calendar scope.
+        const scopeResponse = await fetch(
+          `/api/google/calendar-scope?groupId=${encodeURIComponent(nextGroupId)}`,
+          {
+            method: "GET",
+            headers: { Authorization: `Bearer ${nextAccessToken}` },
+            cache: "no-store",
+          }
+        );
+        const scopePayload = (await scopeResponse.json()) as {
+          hasCalendarScope?: boolean;
+          consentPageUrl?: string;
+        };
+        if (cancelled) return;
+
+        if (!scopePayload.hasCalendarScope) {
+          setConsentPageUrl(scopePayload.consentPageUrl ?? "");
+          setStatus("calendarDisconnected");
+          return;
+        }
+
         setStatus("loadingMembers");
 
         const response = await fetch(
@@ -145,6 +172,7 @@ export default function MeetingLiffPage() {
 
       const payload = (await response.json()) as {
         error?: string;
+        meetUrl?: string | null;
         notificationSent?: boolean;
       };
 
@@ -152,6 +180,7 @@ export default function MeetingLiffPage() {
         throw new Error(payload.error ?? "建立活動失敗");
       }
 
+      setCreatedMeetUrl(payload.meetUrl ?? null);
       setStatus("done");
 
       if (payload.notificationSent === false) {
@@ -170,7 +199,38 @@ export default function MeetingLiffPage() {
   const disabled = status !== "ready";
 
   const showBlockingLoader =
-    Boolean(LIFF_ID) && (status === "loading" || status === "loadingMembers");
+    Boolean(LIFF_ID) &&
+    (status === "loading" ||
+      status === "checkingCalendar" ||
+      status === "loadingMembers");
+
+  if (status === "calendarDisconnected") {
+    return (
+      <main style={{ ...mainStyle, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ ...pageInnerStyle, textAlign: "center", gap: "1.25rem" }}>
+          <h1 style={{ ...pageTitleStyle, fontSize: "2rem" }}>連結 Google 日曆</h1>
+          <p style={{ ...pageSubtitleStyle, fontSize: "0.95rem" }}>
+            米特寶寶需要 Google 日曆權限才能產生 Meet 連結。
+            請點下方按鈕在外部瀏覽器完成授權（LINE 內建瀏覽器會被 Google 擋）。
+          </p>
+          {consentPageUrl ? (
+            <a
+              href={consentPageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={calendarConnectButtonStyle}
+            >
+              連結 Google 日曆
+            </a>
+          ) : (
+            <p style={{ color: THEME.textMuted, fontSize: "0.88rem" }}>
+              無法產生授權連結，請關閉後重新開啟。
+            </p>
+          )}
+        </div>
+      </main>
+    );
+  }
 
   return (
     <>
@@ -284,10 +344,28 @@ export default function MeetingLiffPage() {
                 ? "送出中…"
                 : status === "done"
                   ? "已送出"
-                  : status === "loading" || status === "loadingMembers"
+                  : status === "loading" ||
+                      status === "checkingCalendar" ||
+                      status === "loadingMembers"
                     ? "載入中…"
                     : "送出預約"}
             </button>
+
+            {status === "done" && createdMeetUrl && (
+              <div style={meetUrlBoxStyle}>
+                <span style={{ fontWeight: 700, marginBottom: "0.35rem", display: "block" }}>
+                  Google Meet 連結
+                </span>
+                <a
+                  href={createdMeetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: THEME.accent, wordBreak: "break-all", fontSize: "0.9rem" }}
+                >
+                  {createdMeetUrl}
+                </a>
+              </div>
+            )}
           </form>
         </div>
       </div>
@@ -499,5 +577,29 @@ const errorBoxStyle: CSSProperties = {
   padding: "0.75rem 1rem",
   borderRadius: THEME.radiusControl,
   fontSize: "0.9rem",
+  boxShadow: THEME.shadowCard,
+};
+
+const calendarConnectButtonStyle: CSSProperties = {
+  display: "inline-block",
+  background: THEME.accent,
+  color: "#FFFFFF",
+  border: "none",
+  borderRadius: "18px",
+  padding: "0.85rem 1.5rem",
+  fontSize: "1rem",
+  fontWeight: 800,
+  textDecoration: "none",
+  boxShadow: `0 8px 22px rgba(${THEME.accentRgb}, 0.35)`,
+  WebkitTapHighlightColor: "transparent",
+};
+
+const meetUrlBoxStyle: CSSProperties = {
+  marginTop: "0.5rem",
+  background: THEME.surfaceSubtle,
+  border: `1px solid ${THEME.surfaceBorder}`,
+  borderRadius: THEME.radiusInput,
+  padding: "0.75rem 0.95rem",
+  fontSize: "0.88rem",
   boxShadow: THEME.shadowCard,
 };
