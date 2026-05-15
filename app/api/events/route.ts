@@ -172,7 +172,7 @@ export async function POST(request: Request) {
       let parentFolderId = await getGroupDriveFolderId(input.groupId);
 
       if (!parentFolderId) {
-        const groupFolder = await createDriveFolder({ name: input.groupId });
+        const groupFolder = await createDriveFolder({ name: "LINE 群組" });
         await setDriveFolderPermission({
           folderId: groupFolder.id,
           role: "writer",
