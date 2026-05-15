@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/lib/google/serviceAccount", () => ({
   getServiceAccountAccessToken: vi.fn().mockResolvedValue("fake-token"),
@@ -17,6 +17,8 @@ describe("createDriveFolder", () => {
       })
     );
   });
+
+  afterEach(() => vi.unstubAllGlobals());
 
   it("calls Drive API with correct folder metadata", async () => {
     const { createDriveFolder } = await import("@/lib/google/driveAdmin");

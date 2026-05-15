@@ -32,17 +32,17 @@ export async function createDriveFolder(input: {
     }
   );
 
-  const json = (await response.json()) as {
+  const json = (await response.json().catch(() => null)) as {
     id?: string;
     webViewLink?: string;
     error?: { message?: string };
-  };
+  } | null;
   if (!response.ok) {
     throw new Error(
-      `Drive create folder error: ${json.error?.message ?? response.status}`
+      `Drive create folder error: ${json?.error?.message ?? response.status}`
     );
   }
-  if (!json.id || !json.webViewLink) {
+  if (!json?.id || !json?.webViewLink) {
     throw new Error("Drive API returned incomplete folder data.");
   }
   return { id: json.id, webViewLink: json.webViewLink };
