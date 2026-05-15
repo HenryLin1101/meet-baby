@@ -6,6 +6,7 @@ type ChatGroupRow = {
   line_group_id: string;
   name: string | null;
   picture_url: string | null;
+  drive_folder_id: string | null;
 };
 
 type LineUserRow = {
