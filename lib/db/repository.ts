@@ -1354,10 +1354,11 @@ export async function setEventDriveFolderId(
   driveFolderId: string
 ): Promise<void> {
   const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
   const trimmedFolderId = requireNonEmpty(driveFolderId, "driveFolderId");
   const { error } = await supabase
     .from("events")
     .update({ drive_folder_id: trimmedFolderId })
-    .eq("id", eventId);
+    .eq("id", normalizedEventId);
   assertNoError(error, "更新活動 Drive 資料夾 ID 失敗。");
 }
