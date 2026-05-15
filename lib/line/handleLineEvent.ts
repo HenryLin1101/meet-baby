@@ -1,9 +1,14 @@
 import { messagingApi, webhook } from "@line/bot-sdk";
 import {
   ensureChatGroup,
+  upsertGroupDriveFolderId,
   upsertGroupMembership,
   upsertLineUser,
 } from "@/lib/db/repository";
+import {
+  createDriveFolder,
+  setDriveFolderPermission,
+} from "@/lib/google/driveAdmin";
 import { getCommandByName, normalizeText, routeCommand } from "@/lib/line/commandRouter";
 import {
   clearConversationState,
@@ -349,8 +354,8 @@ function isGroupMessageEvent(event: LineMessageEvent): event is GroupMessageEven
 async function syncGroupFromJoin(
   client: messagingApi.MessagingApiClient,
   event: Extract<LineEvent, { type: "join" }>
-): Promise<void> {
-  if (!isGroupJoinEvent(event)) return;
+): Promise<string | null> {
+  if (!isGroupJoinEvent(event)) return null;
 
   const groupSummary = await getGroupName(client, event.source.groupId);
   await ensureChatGroup(
@@ -358,6 +363,18 @@ async function syncGroupFromJoin(
     groupSummary.name,
     groupSummary.pictureUrl
   );
+
+  try {
+    const folder = await createDriveFolder({
+      name: groupSummary.name ?? event.source.groupId,
+    });
+    await setDriveFolderPermission({ folderId: folder.id, role: "writer" });
+    await upsertGroupDriveFolderId(event.source.groupId, folder.id);
+    return folder.webViewLink;
+  } catch (error) {
+    console.error("[drive.createGroupFolder]", error);
+    return null;
+  }
 }
 
 async function syncAddressedLineUser(
@@ -492,14 +509,23 @@ const eventHandlers: Partial<Record<LineEvent["type"], LineEventHandler>> = {
   },
   join: async (client, event) => {
     if (event.type !== "join") return;
+    let driveFolderLink: string | null = null;
     try {
-      await syncGroupFromJoin(client, event);
+      driveFolderLink = await syncGroupFromJoin(client, event);
     } catch (error) {
       console.error("[LINE join sync]", error);
     }
+    const messages: messagingApi.Message[] = [
+      textMessage(WELCOME_ON_JOIN),
+    ];
+    if (driveFolderLink) {
+      messages.push(
+        textMessage(`📁 已為本群組建立 Google Drive 資料夾：\n${driveFolderLink}`)
+      );
+    }
     await client.replyMessage({
       replyToken: event.replyToken,
-      messages: [textMessage(WELCOME_ON_JOIN)],
+      messages,
     });
   },
   message: async (client, event) => {
