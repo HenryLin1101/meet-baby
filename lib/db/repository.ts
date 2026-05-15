@@ -350,7 +350,7 @@ async function getChatGroupByLineGroupId(
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .eq("line_group_id", lineGroupId)
     .maybeSingle<ChatGroupRow>();
 
@@ -443,7 +443,7 @@ export async function ensureChatGroup(
   const { data, error } = await supabase
     .from("chat_groups")
     .upsert(insertPayload, { onConflict: "line_group_id" })
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .single<ChatGroupRow>();
 
   assertNoError(error, "建立或更新群組資料失敗。");
@@ -746,7 +746,7 @@ export async function listUserGroups(lineUserId: string): Promise<UserChatGroup[
 
   const { data, error } = await supabase
     .from("group_memberships")
-    .select("group_id, chat_groups(id, line_group_id, name, picture_url)")
+    .select("group_id, chat_groups(id, line_group_id, name, picture_url, drive_folder_id)")
     .eq("user_id", user.id)
     .eq("is_active", true);
 
@@ -960,7 +960,7 @@ export async function getEventReminderDetails(
 
   const { data: group, error: groupError } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .eq("id", Number(event.group_id))
     .maybeSingle<ChatGroupRow>();
 
@@ -1287,7 +1287,7 @@ export async function getEventSummaryProcessingDetails(
 
   const { data: group, error: groupError } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .eq("id", Number(summary.group_id))
     .maybeSingle<ChatGroupRow>();
   assertNoError(groupError, "讀取群組資料失敗。");
