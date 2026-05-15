@@ -366,7 +366,7 @@ async function syncGroupFromJoin(
 
   try {
     const folder = await createDriveFolder({
-      name: groupSummary.name ?? event.source.groupId,
+      name: groupSummary.name ?? "LINE 群組",
     });
     await setDriveFolderPermission({ folderId: folder.id, role: "writer" });
     await upsertGroupDriveFolderId(event.source.groupId, folder.id);
