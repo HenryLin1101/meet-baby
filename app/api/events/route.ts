@@ -5,7 +5,15 @@ import {
   listLineUsersByIds,
   RepositoryError,
   upsertLineUser,
+  getGroupDriveFolderId,
+  setEventDriveFolderId,
+  upsertGroupDriveFolderId,
 } from "@/lib/db/repository";
+import {
+  createDriveFolder,
+  setDriveFolderPermission,
+  formatMeetingFolderName,
+} from "@/lib/google/driveAdmin";
 import {
   getBearerToken,
   LineAuthError,
@@ -159,11 +167,61 @@ export async function POST(request: Request) {
       console.error("[create-event.schedule-reminder]", error);
     }
 
+    let driveFolderUrl: string | null = null;
+    try {
+      let parentFolderId = await getGroupDriveFolderId(input.groupId);
+
+      if (!parentFolderId) {
+        const groupFolder = await createDriveFolder({ name: "LINE 群組" });
+        await setDriveFolderPermission({
+          folderId: groupFolder.id,
+          role: "writer",
+        });
+        await upsertGroupDriveFolderId(input.groupId, groupFolder.id);
+        parentFolderId = groupFolder.id;
+      }
+
+      const folderName = formatMeetingFolderName(
+        createdEvent.title,
+        createdEvent.startsAt
+      );
+      const meetingFolder = await createDriveFolder({
+        name: folderName,
+        parentId: parentFolderId,
+      });
+      await setDriveFolderPermission({
+        folderId: meetingFolder.id,
+        role: "writer",
+      });
+      await setEventDriveFolderId(createdEvent.eventId, meetingFolder.id);
+      driveFolderUrl = meetingFolder.webViewLink;
+    } catch (error) {
+      console.error("[create-event.drive-folder]", error);
+    }
+
+    if (driveFolderUrl) {
+      try {
+        const driveClient = createMessagingClient();
+        await driveClient.pushMessage({
+          to: createdEvent.lineGroupId,
+          messages: [
+            {
+              type: "text",
+              text: `📁 會議資料夾：\n${driveFolderUrl}`,
+            },
+          ],
+        });
+      } catch (error) {
+        console.error("[create-event.drive-folder.notify]", error);
+      }
+    }
+
     return Response.json(
       {
         eventId: createdEvent.eventId,
         notificationSent,
         reminderScheduled,
+        driveFolderUrl,
       },
       { status: 201 }
     );

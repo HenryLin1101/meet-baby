@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS chat_groups (
 ALTER TABLE chat_groups
   ADD COLUMN IF NOT EXISTS picture_url TEXT;
 
+ALTER TABLE chat_groups
+  ADD COLUMN IF NOT EXISTS drive_folder_id TEXT;
+
 CREATE TABLE IF NOT EXISTS group_memberships (
   id BIGSERIAL PRIMARY KEY,
   group_id BIGINT NOT NULL REFERENCES chat_groups(id) ON DELETE CASCADE,
@@ -108,6 +111,9 @@ ALTER TABLE events
   ADD COLUMN IF NOT EXISTS reminder_processing_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS reminder_last_error TEXT;
+
+ALTER TABLE events
+  ADD COLUMN IF NOT EXISTS drive_folder_id TEXT;
 
 CREATE TABLE IF NOT EXISTS event_attendees (
   id BIGSERIAL PRIMARY KEY,

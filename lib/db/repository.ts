@@ -6,6 +6,7 @@ type ChatGroupRow = {
   line_group_id: string;
   name: string | null;
   picture_url: string | null;
+  drive_folder_id: string | null;
 };
 
 type LineUserRow = {
@@ -349,7 +350,7 @@ async function getChatGroupByLineGroupId(
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .eq("line_group_id", lineGroupId)
     .maybeSingle<ChatGroupRow>();
 
@@ -442,7 +443,7 @@ export async function ensureChatGroup(
   const { data, error } = await supabase
     .from("chat_groups")
     .upsert(insertPayload, { onConflict: "line_group_id" })
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .single<ChatGroupRow>();
 
   assertNoError(error, "建立或更新群組資料失敗。");
@@ -745,7 +746,7 @@ export async function listUserGroups(lineUserId: string): Promise<UserChatGroup[
 
   const { data, error } = await supabase
     .from("group_memberships")
-    .select("group_id, chat_groups(id, line_group_id, name, picture_url)")
+    .select("group_id, chat_groups(id, line_group_id, name, picture_url, drive_folder_id)")
     .eq("user_id", user.id)
     .eq("is_active", true);
 
@@ -959,7 +960,7 @@ export async function getEventReminderDetails(
 
   const { data: group, error: groupError } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .eq("id", Number(event.group_id))
     .maybeSingle<ChatGroupRow>();
 
@@ -1286,7 +1287,7 @@ export async function getEventSummaryProcessingDetails(
 
   const { data: group, error: groupError } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .eq("id", Number(summary.group_id))
     .maybeSingle<ChatGroupRow>();
   assertNoError(groupError, "讀取群組資料失敗。");
@@ -1712,4 +1713,52 @@ export async function deleteTodoItem(input: {
     .maybeSingle<{ id: number }>();
   assertNoError(deleteErr, "刪除待辦事項失敗。");
   return Boolean(data);
+}
+
+// ---------------------------------------------------------------------------
+// Drive Folders
+// ---------------------------------------------------------------------------
+
+export async function upsertGroupDriveFolderId(
+  lineGroupId: string,
+  driveFolderId: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const trimmedGroupId = requireNonEmpty(lineGroupId, "lineGroupId");
+  const trimmedFolderId = requireNonEmpty(driveFolderId, "driveFolderId");
+  const { error } = await supabase
+    .from("chat_groups")
+    .upsert(
+      { line_group_id: trimmedGroupId, drive_folder_id: trimmedFolderId },
+      { onConflict: "line_group_id" }
+    );
+  assertNoError(error, "更新群組 Drive 資料夾 ID 失敗。");
+}
+
+export async function getGroupDriveFolderId(
+  lineGroupId: string
+): Promise<string | null> {
+  const supabase = getSupabaseAdmin();
+  const trimmedGroupId = requireNonEmpty(lineGroupId, "lineGroupId");
+  const { data, error } = await supabase
+    .from("chat_groups")
+    .select("drive_folder_id")
+    .eq("line_group_id", trimmedGroupId)
+    .maybeSingle<{ drive_folder_id: string | null }>();
+  assertNoError(error, "讀取群組 Drive 資料夾 ID 失敗。");
+  return data?.drive_folder_id ?? null;
+}
+
+export async function setEventDriveFolderId(
+  eventId: number,
+  driveFolderId: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
+  const trimmedFolderId = requireNonEmpty(driveFolderId, "driveFolderId");
+  const { error } = await supabase
+    .from("events")
+    .update({ drive_folder_id: trimmedFolderId })
+    .eq("id", normalizedEventId);
+  assertNoError(error, "更新活動 Drive 資料夾 ID 失敗。");
 }
