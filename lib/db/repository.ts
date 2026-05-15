@@ -1320,3 +1320,44 @@ export async function markEventSummaryFailed(input: {
     .eq("id", summaryId);
   assertNoError(error, "更新會議總結失敗狀態失敗。");
 }
+
+export async function upsertGroupDriveFolderId(
+  lineGroupId: string,
+  driveFolderId: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const trimmedGroupId = requireNonEmpty(lineGroupId, "lineGroupId");
+  const trimmedFolderId = requireNonEmpty(driveFolderId, "driveFolderId");
+  const { error } = await supabase
+    .from("chat_groups")
+    .update({ drive_folder_id: trimmedFolderId })
+    .eq("line_group_id", trimmedGroupId);
+  assertNoError(error, "更新群組 Drive 資料夾 ID 失敗。");
+}
+
+export async function getGroupDriveFolderId(
+  lineGroupId: string
+): Promise<string | null> {
+  const supabase = getSupabaseAdmin();
+  const trimmedGroupId = requireNonEmpty(lineGroupId, "lineGroupId");
+  const { data, error } = await supabase
+    .from("chat_groups")
+    .select("drive_folder_id")
+    .eq("line_group_id", trimmedGroupId)
+    .maybeSingle<{ drive_folder_id: string | null }>();
+  assertNoError(error, "讀取群組 Drive 資料夾 ID 失敗。");
+  return data?.drive_folder_id ?? null;
+}
+
+export async function setEventDriveFolderId(
+  eventId: number,
+  driveFolderId: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const trimmedFolderId = requireNonEmpty(driveFolderId, "driveFolderId");
+  const { error } = await supabase
+    .from("events")
+    .update({ drive_folder_id: trimmedFolderId })
+    .eq("id", eventId);
+  assertNoError(error, "更新活動 Drive 資料夾 ID 失敗。");
+}
