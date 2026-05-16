@@ -36,7 +36,8 @@ export function buildGoogleOAuthConsentUrl(input: {
 }): string {
   const clientId = getGoogleClientIdOrThrow();
   const redirectUri = getGoogleOAuthRedirectUri();
-  const scopes = input.scopes?.length ? input.scopes : [GOOGLE_DRIVE_READONLY_SCOPE];
+  const baseScopes = input.scopes?.length ? input.scopes : [GOOGLE_DRIVE_READONLY_SCOPE];
+  const scopes = Array.from(new Set([...baseScopes, "openid", "email"]));
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -106,5 +107,23 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
     throw new Error("Google refresh token response missing access_token.");
   }
   return { accessToken, expiresIn: json.expires_in, scope: json.scope };
+}
+
+export async function fetchGoogleUserEmail(accessToken: string): Promise<string | null> {
+  try {
+    const response = await fetch(
+      "https://openidconnect.googleapis.com/v1/userinfo",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+      }
+    );
+    if (!response.ok) return null;
+    const data = (await response.json()) as { email?: string };
+    return data.email?.trim() || null;
+  } catch {
+    return null;
+  }
 }
 

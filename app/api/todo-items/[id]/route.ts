@@ -53,6 +53,7 @@ export async function PATCH(
       displayName: verifiedUser.displayName,
       pictureUrl: verifiedUser.pictureUrl,
       statusMessage: verifiedUser.statusMessage,
+      email: verifiedUser.email,
     });
 
     if (typeof body.isCompleted === "boolean") {
@@ -122,6 +123,7 @@ export async function DELETE(
       displayName: verifiedUser.displayName,
       pictureUrl: verifiedUser.pictureUrl,
       statusMessage: verifiedUser.statusMessage,
+      email: verifiedUser.email,
     });
 
     const deleted = await deleteTodoItem({

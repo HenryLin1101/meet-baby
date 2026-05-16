@@ -39,6 +39,7 @@ export type LineUserReference = {
   userId: number;
   lineUserId: string;
   displayName: string;
+  email: string | null;
 };
 
 type GroupMemberRow = {
@@ -588,6 +589,22 @@ export async function listActiveGroupMembers(
   });
 }
 
+export async function setLineUserEmailByLineUserId(
+  lineUserId: string,
+  email: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedLineUserId = requireNonEmpty(lineUserId, "lineUserId");
+  const normalizedEmail = requireNonEmpty(email, "email");
+
+  const { error } = await supabase
+    .from("line_users")
+    .update({ email: normalizedEmail })
+    .eq("line_user_id", normalizedLineUserId);
+
+  assertNoError(error, "更新 LINE 使用者 email 失敗。");
+}
+
 export async function listLineUsersByIds(
   userIds: number[]
 ): Promise<LineUserReference[]> {
@@ -600,7 +617,7 @@ export async function listLineUsersByIds(
 
   const { data, error } = await supabase
     .from("line_users")
-    .select("id, line_user_id, display_name")
+    .select("id, line_user_id, display_name, email")
     .in("id", normalizedUserIds)
     .order("display_name", { ascending: true })
     .order("id", { ascending: true });
@@ -611,6 +628,7 @@ export async function listLineUsersByIds(
     userId: Number(row.id),
     lineUserId: String(row.line_user_id),
     displayName: String(row.display_name),
+    email: row.email === null || row.email === undefined ? null : String(row.email),
   }));
 }
 

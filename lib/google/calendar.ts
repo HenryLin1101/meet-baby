@@ -92,6 +92,7 @@ export async function createCalendarEventWithMeet(input: {
   endsAt?: string | null;
   location?: string | null;
   description?: string | null;
+  attendeeEmails?: string[];
 }): Promise<{ calendarEventId: string; meetingUrl: string }> {
   const startsAtDate = new Date(input.startsAt);
   if (Number.isNaN(startsAtDate.getTime())) {
@@ -119,6 +120,13 @@ export async function createCalendarEventWithMeet(input: {
   }
   if (input.description?.trim()) {
     body.description = input.description.trim();
+  }
+  const attendees = (input.attendeeEmails ?? [])
+    .map((email) => email?.trim())
+    .filter((email): email is string => Boolean(email))
+    .map((email) => ({ email }));
+  if (attendees.length > 0) {
+    body.attendees = attendees;
   }
 
   const event = await googleFetchJson<CalendarEventResponse>(

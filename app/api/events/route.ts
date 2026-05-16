@@ -105,6 +105,7 @@ export async function POST(request: Request) {
       displayName: verifiedUser.displayName,
       pictureUrl: verifiedUser.pictureUrl,
       statusMessage: verifiedUser.statusMessage,
+      email: verifiedUser.email,
     });
 
     const createdEvent = await createEventWithAttendees({
@@ -117,18 +118,24 @@ export async function POST(request: Request) {
       attendeeUserIds: input.attendeeUserIds,
       timezone: "Asia/Taipei",
     });
+    const attendeeLineUsers = await listLineUsersByIds(input.attendeeUserIds);
+
     // Try to create Google Calendar event and get Meet URL (non-fatal).
     let meetingUrl: string | null = null;
     try {
       const credential = await getGoogleCredentialByLineUserId(verifiedUser.lineUserId);
       if (credential && hasCalendarScope(credential)) {
         const { accessToken } = await refreshAccessToken(credential.refreshToken);
+        const attendeeEmails = attendeeLineUsers
+          .map((user) => user.email)
+          .filter((email): email is string => Boolean(email));
         const calResult = await createCalendarEventWithMeet({
           accessToken,
           title: createdEvent.title,
           startsAt: createdEvent.startsAt,
           location: createdEvent.location,
           description: createdEvent.description,
+          attendeeEmails,
         });
         meetingUrl = calResult.meetingUrl;
         try {
@@ -144,8 +151,6 @@ export async function POST(request: Request) {
     } catch (err) {
       console.error("[create-event.calendar]", err);
     }
-
-    const attendeeLineUsers = await listLineUsersByIds(input.attendeeUserIds);
 
     const summary = buildMeetingSummary({
       title: createdEvent.title,
@@ -292,6 +297,7 @@ export async function GET(request: Request) {
       displayName: verifiedUser.displayName,
       pictureUrl: verifiedUser.pictureUrl,
       statusMessage: verifiedUser.statusMessage,
+      email: verifiedUser.email,
     });
 
     const events = await listGroupEvents(groupId);
