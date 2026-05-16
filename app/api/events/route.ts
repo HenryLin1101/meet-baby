@@ -118,7 +118,7 @@ export async function POST(request: Request) {
       timezone: "Asia/Taipei",
     });
     // Try to create Google Calendar event and get Meet URL (non-fatal).
-    let meetUrl: string | null = null;
+    let meetingUrl: string | null = null;
     try {
       const credential = await getGoogleCredentialByLineUserId(verifiedUser.lineUserId);
       if (credential && hasCalendarScope(credential)) {
@@ -130,12 +130,16 @@ export async function POST(request: Request) {
           location: createdEvent.location,
           description: createdEvent.description,
         });
-        await updateEventCalendarData({
-          eventId: createdEvent.eventId,
-          meetUrl: calResult.meetUrl,
-          calendarEventId: calResult.calendarEventId,
-        });
-        meetUrl = calResult.meetUrl;
+        meetingUrl = calResult.meetingUrl;
+        try {
+          await updateEventCalendarData({
+            eventId: createdEvent.eventId,
+            meetingUrl: calResult.meetingUrl,
+            calendarEventId: calResult.calendarEventId,
+          });
+        } catch (dbErr) {
+          console.error("[create-event.calendar.persist]", dbErr);
+        }
       }
     } catch (err) {
       console.error("[create-event.calendar]", err);
@@ -168,7 +172,7 @@ export async function POST(request: Request) {
                   timezone: createdEvent.timezone,
                   location: createdEvent.location,
                   note: createdEvent.description,
-                  meetUrl,
+                  meetingUrl,
                   attendees: attendeeLineUsers,
                 }),
               ]
@@ -249,7 +253,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         eventId: createdEvent.eventId,
-        meetUrl,
+        meetingUrl,
         notificationSent,
         reminderScheduled,
         driveFolderUrl,

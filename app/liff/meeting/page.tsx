@@ -48,7 +48,7 @@ export default function MeetingLiffPage() {
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>([]);
   const [consentPageUrl, setConsentPageUrl] = useState("");
-  const [createdMeetUrl, setCreatedMeetUrl] = useState<string | null>(null);
+  const [createdMeetingUrl, setCreatedMeetingUrl] = useState<string | null>(null);
 
   async function loadGroupMembers(
     nextGroupId: string,
@@ -188,7 +188,7 @@ export default function MeetingLiffPage() {
 
       const payload = (await response.json()) as {
         error?: string;
-        meetUrl?: string | null;
+        meetingUrl?: string | null;
         notificationSent?: boolean;
       };
 
@@ -196,7 +196,7 @@ export default function MeetingLiffPage() {
         throw new Error(payload.error ?? "建立活動失敗");
       }
 
-      setCreatedMeetUrl(payload.meetUrl ?? null);
+      setCreatedMeetingUrl(payload.meetingUrl ?? null);
       setStatus("done");
 
       if (payload.notificationSent === false) {
@@ -374,18 +374,18 @@ export default function MeetingLiffPage() {
                     : "送出預約"}
             </button>
 
-            {status === "done" && createdMeetUrl && (
-              <div style={meetUrlBoxStyle}>
+            {status === "done" && createdMeetingUrl && (
+              <div style={meetingUrlBoxStyle}>
                 <span style={{ fontWeight: 700, marginBottom: "0.35rem", display: "block" }}>
                   Google Meet 連結
                 </span>
                 <a
-                  href={createdMeetUrl}
+                  href={createdMeetingUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ color: THEME.accent, wordBreak: "break-all", fontSize: "0.9rem" }}
                 >
-                  {createdMeetUrl}
+                  {createdMeetingUrl}
                 </a>
               </div>
             )}
@@ -630,7 +630,7 @@ const calendarSkipButtonStyle: CSSProperties = {
   WebkitTapHighlightColor: "transparent",
 };
 
-const meetUrlBoxStyle: CSSProperties = {
+const meetingUrlBoxStyle: CSSProperties = {
   marginTop: "0.5rem",
   background: THEME.surfaceSubtle,
   border: `1px solid ${THEME.surfaceBorder}`,

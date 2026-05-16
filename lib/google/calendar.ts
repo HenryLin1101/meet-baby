@@ -92,7 +92,7 @@ export async function createCalendarEventWithMeet(input: {
   endsAt?: string | null;
   location?: string | null;
   description?: string | null;
-}): Promise<{ calendarEventId: string; meetUrl: string }> {
+}): Promise<{ calendarEventId: string; meetingUrl: string }> {
   const startsAtDate = new Date(input.startsAt);
   if (Number.isNaN(startsAtDate.getTime())) {
     throw new Error("startsAt 格式不正確。");
@@ -139,12 +139,12 @@ export async function createCalendarEventWithMeet(input: {
   const videoEntry = event.conferenceData?.entryPoints?.find(
     (ep) => ep.entryPointType === "video"
   );
-  const meetUrl = videoEntry?.uri?.trim();
-  if (!meetUrl) {
+  const meetingUrl = videoEntry?.uri?.trim();
+  if (!meetingUrl) {
     throw new Error("Google Calendar API 未回傳 Meet 連結。");
   }
 
-  return { calendarEventId, meetUrl };
+  return { calendarEventId, meetingUrl };
 }
 
 export async function createCalendarEventWithMeetByRefreshToken(input: {
@@ -154,7 +154,7 @@ export async function createCalendarEventWithMeetByRefreshToken(input: {
   endsAt?: string | null;
   location?: string | null;
   description?: string | null;
-}): Promise<{ calendarEventId: string; meetUrl: string }> {
+}): Promise<{ calendarEventId: string; meetingUrl: string }> {
   const { accessToken } = await refreshAccessToken(input.refreshToken);
   return createCalendarEventWithMeet({ ...input, accessToken });
 }

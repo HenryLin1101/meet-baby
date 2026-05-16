@@ -110,8 +110,8 @@ ALTER TABLE events
   ADD COLUMN IF NOT EXISTS reminder_scheduled_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS reminder_processing_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS reminder_last_error TEXT;
-  ADD COLUMN meet_url TEXT, ADD COLUMN calendar_event_id TEXT;
+  ADD COLUMN IF NOT EXISTS reminder_last_error TEXT,
+  ADD COLUMN IF NOT EXISTS calendar_event_id TEXT;
 
 ALTER TABLE events
   ADD COLUMN IF NOT EXISTS drive_folder_id TEXT;
