@@ -79,6 +79,29 @@ type DashboardEvent = {
   ownerDisplayName: string;
 };
 
+type TodoItem = {
+  id: number;
+  summaryId: number | null;
+  groupId: number;
+  lineGroupId: string;
+  groupName: string;
+  meetingTitle: string;
+  item: string;
+  owner: string;
+  assignedUsers: { userId: number; displayName: string }[];
+  due: string;
+  isCompleted: boolean;
+  completedAt: string | null;
+  createdAt: string;
+};
+
+type TodoGroupMember = {
+  userId: number;
+  lineUserId: string;
+  displayName: string;
+  pictureUrl: string | null;
+};
+
 type CalendarCell =
   | { kind: "pad"; key: string }
   | { kind: "day"; key: string; date: Date };
@@ -100,6 +123,27 @@ export default function DashboardLiffPage() {
   const [selectedDateKey, setSelectedDateKey] = useState(() =>
     formatDateKey(new Date())
   );
+  const [lineAccessToken, setLineAccessToken] = useState<string | null>(null);
+  const [todoItems, setTodoItems] = useState<TodoItem[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [currentUserDisplayName, setCurrentUserDisplayName] = useState<string>("");
+  const [todoScope, setTodoScope] = useState<"all" | "mine">("all");
+  const [groupMembers, setGroupMembers] = useState<Record<string, TodoGroupMember[]>>({});
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [newTodoText, setNewTodoText] = useState("");
+  const [newTodoGroupId, setNewTodoGroupId] = useState<string>("");
+  const [newTodoDue, setNewTodoDue] = useState("");
+  const [newTodoAssignees, setNewTodoAssignees] = useState<number[]>([]);
+  const [addingTodo, setAddingTodo] = useState(false);
+  const [showAddTodoModal, setShowAddTodoModal] = useState(false);
+
+  useEffect(() => {
+    if (showAddTodoModal) {
+      document.body.style.overflow = "hidden";
+      return () => { document.body.style.overflow = ""; };
+    }
+  }, [showAddTodoModal]);
+
   /** 避免每次 refetch 都把選取日期覆寫成 API 陣列第一筆（例如固定跳回 4/21） */
   const didApplyInitialSelection = useRef(false);
 
@@ -115,6 +159,7 @@ export default function DashboardLiffPage() {
         if (!accessToken) {
           throw new Error("無法取得 LINE access token。");
         }
+        setLineAccessToken(accessToken);
         if (cancelled) return;
 
         setStatus("loadingEvents");
@@ -157,6 +202,9 @@ export default function DashboardLiffPage() {
           if (Object.keys(prev).length > 0) return prev;
           return Object.fromEntries(nextGroups.map((g) => [g.lineGroupId, true]));
         });
+        setNewTodoGroupId((prev) =>
+          prev || (nextGroups.length > 0 ? nextGroups[0].lineGroupId : "")
+        );
         setMeetings(nextMeetings);
 
         if (!didApplyInitialSelection.current) {
@@ -213,6 +261,255 @@ export default function DashboardLiffPage() {
     };
   }, [currentMonth]);
 
+  useEffect(() => {
+    if (!lineAccessToken || groups.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [todoRes, ...memberResults] = await Promise.all([
+          fetch("/api/todo-items", {
+            headers: { Authorization: `Bearer ${lineAccessToken}` },
+            cache: "no-store",
+          }),
+          ...groups.map((g) =>
+            fetch(
+              `/api/group-members?groupId=${encodeURIComponent(g.lineGroupId)}`,
+              {
+                headers: { Authorization: `Bearer ${lineAccessToken}` },
+                cache: "no-store",
+              }
+            )
+          ),
+        ]);
+        if (cancelled) return;
+
+        const todoData = (await todoRes.json()) as {
+          todoItems?: TodoItem[];
+          currentUserId?: number;
+          currentUserDisplayName?: string;
+        };
+        if (todoRes.ok && todoData.todoItems) {
+          setTodoItems(todoData.todoItems);
+          if (todoData.currentUserId != null) {
+            setCurrentUserId(todoData.currentUserId);
+          }
+          if (todoData.currentUserDisplayName) {
+            setCurrentUserDisplayName(todoData.currentUserDisplayName);
+          }
+        }
+
+        const membersMap: Record<string, TodoGroupMember[]> = {};
+        for (let i = 0; i < groups.length; i++) {
+          const res = memberResults[i];
+          if (!res.ok) continue;
+          const data = (await res.json()) as {
+            members?: TodoGroupMember[];
+          };
+          if (data.members) {
+            membersMap[groups[i].lineGroupId] = data.members;
+          }
+        }
+        if (!cancelled) setGroupMembers(membersMap);
+      } catch (err) {
+        console.error("[dashboard.todo-items]", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [lineAccessToken, groups]);
+
+  async function handleToggleTodo(id: number, isCompleted: boolean) {
+    if (!lineAccessToken) return;
+    setTodoItems((prev) =>
+      prev.map((t) =>
+        t.id === id
+          ? { ...t, isCompleted, completedAt: isCompleted ? new Date().toISOString() : null }
+          : t
+      )
+    );
+    try {
+      const res = await fetch(`/api/todo-items/${id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${lineAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ isCompleted }),
+      });
+      if (!res.ok) {
+        setTodoItems((prev) =>
+          prev.map((t) => (t.id === id ? { ...t, isCompleted: !isCompleted } : t))
+        );
+      }
+    } catch {
+      setTodoItems((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, isCompleted: !isCompleted } : t))
+      );
+    }
+  }
+
+  async function handleDeleteTodo(id: number) {
+    if (!lineAccessToken) return;
+    const backup = todoItems;
+    setTodoItems((prev) => prev.filter((t) => t.id !== id));
+    try {
+      const res = await fetch(`/api/todo-items/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${lineAccessToken}` },
+      });
+      if (!res.ok) setTodoItems(backup);
+    } catch {
+      setTodoItems(backup);
+    }
+  }
+
+  async function handleUpdateTodoDue(id: number, due: string) {
+    if (!lineAccessToken) return;
+    const prev = todoItems.find((t) => t.id === id);
+    if (!prev) return;
+    setTodoItems((items) => items.map((t) => (t.id === id ? { ...t, due } : t)));
+    try {
+      const res = await fetch(`/api/todo-items/${id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${lineAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ due }),
+      });
+      if (!res.ok) {
+        setTodoItems((items) =>
+          items.map((t) => (t.id === id ? { ...t, due: prev.due } : t))
+        );
+      }
+    } catch {
+      setTodoItems((items) =>
+        items.map((t) => (t.id === id ? { ...t, due: prev.due } : t))
+      );
+    }
+  }
+
+  async function handleAddTodo() {
+    if (!lineAccessToken || !newTodoText.trim() || !newTodoGroupId) return;
+    const group = groups.find((g) => g.lineGroupId === newTodoGroupId);
+    if (!group) return;
+    setAddingTodo(true);
+    try {
+      const payload: Record<string, unknown> = {
+        groupId: group.groupId,
+        item: newTodoText.trim(),
+      };
+      if (newTodoDue) payload.due = newTodoDue;
+      if (newTodoAssignees.length > 0) payload.assignedUserIds = newTodoAssignees;
+
+      const res = await fetch("/api/todo-items", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${lineAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { todoItem?: TodoItem };
+        if (data.todoItem) {
+          setTodoItems((prev) => [...prev, data.todoItem!]);
+        }
+        setNewTodoText("");
+        setNewTodoDue("");
+        setNewTodoAssignees([]);
+        setShowAddTodoModal(false);
+      } else {
+        console.error("[dashboard.addTodo]", await res.text());
+      }
+    } catch (err) {
+      console.error("[dashboard.addTodo]", err);
+    } finally {
+      setAddingTodo(false);
+    }
+  }
+
+  async function handleUpdateTodoText(id: number, item: string) {
+    if (!lineAccessToken || !item.trim()) return;
+    const prev = todoItems.find((t) => t.id === id);
+    if (!prev) return;
+    setTodoItems((items) => items.map((t) => (t.id === id ? { ...t, item } : t)));
+    try {
+      const res = await fetch(`/api/todo-items/${id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${lineAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ item }),
+      });
+      if (!res.ok) {
+        setTodoItems((items) =>
+          items.map((t) => (t.id === id ? { ...t, item: prev.item } : t))
+        );
+      }
+    } catch {
+      setTodoItems((items) =>
+        items.map((t) => (t.id === id ? { ...t, item: prev.item } : t))
+      );
+    }
+  }
+
+  async function handleUpdateTodoAssignees(id: number, assignedUserIds: number[]) {
+    if (!lineAccessToken) return;
+    const prev = todoItems.find((t) => t.id === id);
+    if (!prev) return;
+    try {
+      const res = await fetch(`/api/todo-items/${id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${lineAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ assignedUserIds }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { todoItem?: TodoItem };
+        if (data.todoItem) {
+          setTodoItems((items) =>
+            items.map((t) => (t.id === id ? data.todoItem! : t))
+          );
+        }
+      }
+    } catch {
+      // keep previous state
+    }
+  }
+
+  async function handleUpdateTodoGroup(id: number, newLineGroupId: string) {
+    if (!lineAccessToken) return;
+    const group = groups.find((g) => g.lineGroupId === newLineGroupId);
+    if (!group) return;
+    const prev = todoItems.find((t) => t.id === id);
+    if (!prev) return;
+    try {
+      const res = await fetch(`/api/todo-items/${id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${lineAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ groupId: group.groupId }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { todoItem?: TodoItem };
+        if (data.todoItem) {
+          setTodoItems((items) =>
+            items.map((t) => (t.id === id ? data.todoItem! : t))
+          );
+        }
+      }
+    } catch {
+      // keep previous state
+    }
+  }
+
   const calendarCells = useMemo(
     () => buildCalendarCells(currentMonth),
     [currentMonth]
@@ -241,6 +538,31 @@ export default function DashboardLiffPage() {
     .filter((meeting) => meeting.date >= formatDateKey(new Date()))
     .sort((a, b) => a.startsAtIso.localeCompare(b.startsAtIso))
     .slice(0, 5);
+
+  const pendingTodos = useMemo(
+    () =>
+      todoItems.filter(
+        (t) =>
+          !t.isCompleted &&
+          enabledGroupSet.has(t.lineGroupId) &&
+          (todoScope === "all" ||
+            t.assignedUsers.some((u) => u.userId === currentUserId) ||
+            (currentUserDisplayName !== "" && t.owner === currentUserDisplayName))
+      ),
+    [todoItems, enabledGroupSet, todoScope, currentUserId, currentUserDisplayName]
+  );
+  const completedTodos = useMemo(
+    () =>
+      todoItems.filter(
+        (t) =>
+          t.isCompleted &&
+          enabledGroupSet.has(t.lineGroupId) &&
+          (todoScope === "all" ||
+            t.assignedUsers.some((u) => u.userId === currentUserId) ||
+            (currentUserDisplayName !== "" && t.owner === currentUserDisplayName))
+      ),
+    [todoItems, enabledGroupSet, todoScope, currentUserId, currentUserDisplayName]
+  );
 
   const showBlockingLoader =
     Boolean(LIFF_ID) && (status === "loading" || status === "loadingEvents");
@@ -466,6 +788,307 @@ export default function DashboardLiffPage() {
                   </article>
                 ))}
               </div>
+            )}
+          </div>
+
+          <div style={panelStyle}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.9rem" }}>
+              <h2 style={{ ...sectionTitleStyle, margin: 0 }}>待辦事項</h2>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddTodoModal(true)}
+                  style={{
+                    background: THEME.accent,
+                    color: "#FFF",
+                    border: "none",
+                    borderRadius: "50%",
+                    width: "28px",
+                    height: "28px",
+                    fontSize: "1.1rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    lineHeight: 1,
+                    boxShadow: "0 2px 8px rgba(0, 194, 255, 0.3)",
+                    transition: "transform 0.15s, box-shadow 0.15s",
+                  }}
+                  aria-label="新增待辦事項"
+                >
+                  +
+                </button>
+                <div style={{ display: "inline-flex", borderRadius: "999px", overflow: "hidden", border: `1px solid ${THEME.surfaceBorder}`, background: THEME.surfaceSubtle }}>
+                  {(["all", "mine"] as const).map((scope) => (
+                    <button
+                      key={scope}
+                      type="button"
+                      onClick={() => setTodoScope(scope)}
+                      aria-pressed={todoScope === scope}
+                      style={{
+                        border: "none",
+                        padding: "0.22rem 0.65rem",
+                        fontSize: "0.75rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        background: todoScope === scope ? THEME.accent : "transparent",
+                        color: todoScope === scope ? "#FFF" : THEME.textMuted,
+                        transition: "background 0.15s, color 0.15s",
+                      }}
+                    >
+                      {scope === "all" ? "全部" : "我的"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {showAddTodoModal && (
+              <div
+                style={{
+                  position: "fixed",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: "rgba(0, 0, 0, 0.45)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 9999,
+                  padding: "1rem",
+                  touchAction: "none",
+                  overscrollBehavior: "contain",
+                }}
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) setShowAddTodoModal(false);
+                }}
+                onTouchMove={(e) => e.preventDefault()}
+              >
+                <div
+                  style={{
+                    background: THEME.surface,
+                    borderRadius: THEME.radiusPanel,
+                    padding: "1.5rem",
+                    width: "100%",
+                    maxWidth: "380px",
+                    boxShadow: THEME.shadowPanel,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "1rem",
+                    maxHeight: "85vh",
+                    overflowY: "auto",
+                    overscrollBehavior: "contain",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  onTouchMove={(e) => e.stopPropagation()}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: THEME.text }}>
+                      新增待辦事項
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddTodoModal(false)}
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        fontSize: "1.2rem",
+                        color: THEME.textMuted,
+                        cursor: "pointer",
+                        padding: "0.2rem",
+                        lineHeight: 1,
+                      }}
+                      aria-label="關閉"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                    <div>
+                      <label style={modalLabelStyle}>待辦事項</label>
+                      <input
+                        type="text"
+                        value={newTodoText}
+                        onChange={(e) => setNewTodoText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleAddTodo();
+                        }}
+                        placeholder="輸入待辦事項內容…"
+                        autoFocus
+                        style={modalFieldStyle}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={modalLabelStyle}>群組</label>
+                      <select
+                        value={newTodoGroupId}
+                        onChange={(e) => {
+                          setNewTodoGroupId(e.target.value);
+                          setNewTodoAssignees([]);
+                        }}
+                        style={modalFieldStyle}
+                        aria-label="選擇群組"
+                      >
+                        <option value="">選擇群組</option>
+                        {groups.map((g) => (
+                          <option key={g.lineGroupId} value={g.lineGroupId}>
+                            {g.name?.trim() || "未命名群組"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={modalLabelStyle}>截止日期</label>
+                      <div style={{ position: "relative" }}>
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke={THEME.textMuted}
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          style={{ position: "absolute", left: "0.65rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+                        >
+                          <circle cx="12" cy="12" r="10"/>
+                          <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                        <input
+                          type="date"
+                          value={newTodoDue}
+                          onChange={(e) => setNewTodoDue(e.target.value)}
+                          style={{ ...modalFieldStyle, paddingLeft: "2.2rem" }}
+                          aria-label="截止日期"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={modalLabelStyle}>指派成員</label>
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const uid = Number(e.target.value);
+                          if (uid && !newTodoAssignees.includes(uid)) {
+                            setNewTodoAssignees((prev) => [...prev, uid]);
+                          }
+                        }}
+                        style={modalFieldStyle}
+                        aria-label="指派成員"
+                        disabled={!newTodoGroupId}
+                      >
+                        <option value="">{newTodoGroupId ? "選擇成員" : "請先選擇群組"}</option>
+                        {(groupMembers[newTodoGroupId] ?? [])
+                          .filter((m) => !newTodoAssignees.includes(m.userId))
+                          .map((m) => (
+                            <option key={m.userId} value={m.userId}>
+                              {m.displayName}
+                            </option>
+                          ))}
+                      </select>
+                      {newTodoAssignees.length > 0 && (
+                        <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                          {newTodoAssignees.map((uid) => {
+                            const m = (groupMembers[newTodoGroupId] ?? []).find((x) => x.userId === uid);
+                            return (
+                              <span key={uid} style={assigneeChipStyle}>
+                                {m?.displayName ?? "?"}
+                                <button
+                                  type="button"
+                                  onClick={() => setNewTodoAssignees((prev) => prev.filter((id) => id !== uid))}
+                                  style={assigneeChipRemoveStyle}
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAddTodo}
+                    disabled={addingTodo || !newTodoText.trim() || !newTodoGroupId}
+                    style={{
+                      background: THEME.accent,
+                      color: "#FFF",
+                      border: "none",
+                      borderRadius: "12px",
+                      padding: "0.65rem",
+                      fontSize: "0.9rem",
+                      fontWeight: 700,
+                      cursor: addingTodo || !newTodoText.trim() || !newTodoGroupId ? "not-allowed" : "pointer",
+                      opacity: addingTodo || !newTodoText.trim() || !newTodoGroupId ? 0.5 : 1,
+                      marginTop: "0.25rem",
+                      transition: "opacity 0.15s",
+                    }}
+                  >
+                    {addingTodo ? "新增中…" : "新增"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {pendingTodos.length === 0 ? (
+              <p style={emptyStyle}>目前沒有未完成的待辦事項。</p>
+            ) : (
+              <div style={stackStyle}>
+                {pendingTodos.map((todo) => (
+                  <TodoItemCard
+                    key={todo.id}
+                    todo={todo}
+                    groups={groups}
+                    groupColor={resolveGroupColor(todo.lineGroupId)}
+                    members={groupMembers[todo.lineGroupId] ?? []}
+                    onToggle={() => handleToggleTodo(todo.id, true)}
+                    onDelete={() => handleDeleteTodo(todo.id)}
+                    onUpdateDue={(due) => handleUpdateTodoDue(todo.id, due)}
+                    onUpdateAssignees={(uids) => handleUpdateTodoAssignees(todo.id, uids)}
+                    onUpdateText={(text) => handleUpdateTodoText(todo.id, text)}
+                    onUpdateGroup={(gid) => handleUpdateTodoGroup(todo.id, gid)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {completedTodos.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowCompleted((v) => !v)}
+                  style={completedToggleStyle}
+                >
+                  {showCompleted ? "▾" : "▸"} 已完成（{completedTodos.length}）
+                </button>
+                {showCompleted && (
+                  <div style={{ ...stackStyle, marginTop: "0.5rem" }}>
+                    {completedTodos.map((todo) => (
+                      <TodoItemCard
+                        key={todo.id}
+                        todo={todo}
+                        groups={groups}
+                        groupColor={resolveGroupColor(todo.lineGroupId)}
+                        members={groupMembers[todo.lineGroupId] ?? []}
+                        onToggle={() => handleToggleTodo(todo.id, false)}
+                        onDelete={() => handleDeleteTodo(todo.id)}
+                        onUpdateDue={(due) => handleUpdateTodoDue(todo.id, due)}
+                        onUpdateAssignees={(uids) => handleUpdateTodoAssignees(todo.id, uids)}
+                        onUpdateText={(text) => handleUpdateTodoText(todo.id, text)}
+                        onUpdateGroup={(gid) => handleUpdateTodoGroup(todo.id, gid)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -980,3 +1603,374 @@ const groupPillDotStyle: CSSProperties = {
   borderRadius: "999px",
   flexShrink: 0,
 };
+
+const completedToggleStyle: CSSProperties = {
+  background: "none",
+  border: "none",
+  color: THEME.textMuted,
+  cursor: "pointer",
+  fontSize: "0.82rem",
+  fontWeight: 600,
+  padding: "0.5rem 0 0",
+  marginTop: "0.5rem",
+};
+
+const todoDeleteBtnStyle: CSSProperties = {
+  border: "none",
+  background: "transparent",
+  color: THEME.textMuted,
+  cursor: "pointer",
+  fontSize: "1.15rem",
+  padding: "0.35rem 0.45rem",
+  borderRadius: "8px",
+  flexShrink: 0,
+  lineHeight: 1,
+};
+
+const todoMetaStyle: CSSProperties = {
+  fontSize: "0.78rem",
+  color: THEME.textMuted,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.2rem",
+};
+
+const modalLabelStyle: CSSProperties = {
+  display: "block",
+  fontSize: "0.78rem",
+  fontWeight: 600,
+  color: THEME.textMuted,
+  marginBottom: "0.3rem",
+};
+
+const modalFieldStyle: CSSProperties = {
+  width: "100%",
+  fontSize: "0.88rem",
+  border: `1px solid ${THEME.surfaceBorder}`,
+  borderRadius: "10px",
+  padding: "0.5rem 0.65rem",
+  outline: "none",
+  background: THEME.surfaceSubtle,
+  color: THEME.text,
+  boxSizing: "border-box",
+  cursor: "pointer",
+};
+
+const todoSelectStyle: CSSProperties = {
+  fontSize: "0.78rem",
+  color: THEME.textMuted,
+  background: "transparent",
+  border: `1px solid ${THEME.surfaceBorder}`,
+  borderRadius: "8px",
+  padding: "0.15rem 0.35rem",
+  cursor: "pointer",
+  maxWidth: "8rem",
+};
+
+const todoDateInputStyle: CSSProperties = {
+  fontSize: "0.78rem",
+  color: THEME.textMuted,
+  background: "transparent",
+  border: `1px solid ${THEME.surfaceBorder}`,
+  borderRadius: "8px",
+  padding: "0.15rem 0.35rem",
+  cursor: "pointer",
+};
+
+const assigneeChipStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.2rem",
+  fontSize: "0.72rem",
+  color: THEME.text,
+  background: `rgba(${THEME.accentRgb}, 0.12)`,
+  borderRadius: "12px",
+  padding: "0.1rem 0.45rem",
+  lineHeight: 1.4,
+};
+
+const assigneeChipRemoveStyle: CSSProperties = {
+  border: "none",
+  background: "transparent",
+  color: THEME.textMuted,
+  cursor: "pointer",
+  fontSize: "0.6rem",
+  padding: "0 0.1rem",
+  lineHeight: 1,
+};
+
+function TodoItemCard({
+  todo,
+  groups,
+  groupColor,
+  members,
+  onToggle,
+  onDelete,
+  onUpdateDue,
+  onUpdateAssignees,
+  onUpdateText,
+  onUpdateGroup,
+}: {
+  todo: TodoItem;
+  groups: DashboardGroup[];
+  groupColor: string;
+  members: TodoGroupMember[];
+  onToggle: () => void;
+  onDelete: () => void;
+  onUpdateDue: (due: string) => void;
+  onUpdateAssignees: (userIds: number[]) => void;
+  onUpdateText: (text: string) => void;
+  onUpdateGroup: (lineGroupId: string) => void;
+}) {
+  const [cardEditing, setCardEditing] = useState(false);
+  const [editingText, setEditingText] = useState(false);
+  const [editText, setEditText] = useState(todo.item);
+  const currentIds = todo.assignedUsers.map((u) => u.userId);
+
+  const groupName = groups.find((g) => g.lineGroupId === todo.lineGroupId)?.name?.trim() || "未命名群組";
+
+  function commitEdit() {
+    const trimmed = editText.trim();
+    setEditingText(false);
+    if (trimmed && trimmed !== todo.item) {
+      onUpdateText(trimmed);
+    } else {
+      setEditText(todo.item);
+    }
+  }
+
+  const dueDateDisplay = todo.due && /^\d{4}-\d{2}-\d{2}/.test(todo.due)
+    ? todo.due.slice(0, 10)
+    : "";
+
+  return (
+    <article
+      style={{
+        ...meetingCardCompactStyle,
+        display: "flex",
+        alignItems: "flex-start",
+        gap: "0.55rem",
+      }}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label={todo.isCompleted ? "標記為未完成" : "標記為完成"}
+        style={{
+          width: "1.25rem",
+          height: "1.25rem",
+          borderRadius: "50%",
+          border: `2px solid ${todo.isCompleted ? groupColor : THEME.surfaceBorder}`,
+          background: todo.isCompleted ? groupColor : "transparent",
+          cursor: "pointer",
+          flexShrink: 0,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          marginTop: "0.15rem",
+          color: "#FFF",
+          fontSize: "0.65rem",
+          transition: "background 0.15s, border-color 0.15s",
+          padding: 0,
+        }}
+      >
+        {todo.isCompleted && "✓"}
+      </button>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {editingText ? (
+          <input
+            type="text"
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitEdit();
+              if (e.key === "Escape") {
+                setEditText(todo.item);
+                setEditingText(false);
+              }
+            }}
+            autoFocus
+            style={{
+              fontWeight: 700,
+              fontSize: "0.9rem",
+              color: THEME.text,
+              border: `1px solid ${THEME.accent}`,
+              borderRadius: "6px",
+              padding: "0.15rem 0.35rem",
+              width: "100%",
+              marginBottom: "0.25rem",
+              outline: "none",
+            }}
+          />
+        ) : (
+          <div
+            onClick={() => {
+              if (!todo.isCompleted && cardEditing) {
+                setEditText(todo.item);
+                setEditingText(true);
+              }
+            }}
+            style={{
+              fontWeight: 700,
+              fontSize: "0.9rem",
+              color: todo.isCompleted ? THEME.textMuted : THEME.text,
+              textDecoration: todo.isCompleted ? "line-through" : "none",
+              marginBottom: "0.25rem",
+              cursor: !todo.isCompleted && cardEditing ? "pointer" : "default",
+            }}
+          >
+            {todo.item}
+          </div>
+        )}
+
+        {cardEditing ? (
+          <>
+            <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
+              <span style={todoMetaStyle}>
+                <input
+                  type="date"
+                  value={dueDateDisplay}
+                  onChange={(e) => onUpdateDue(e.target.value)}
+                  style={todoDateInputStyle}
+                  aria-label="截止日期"
+                />
+              </span>
+
+              <span style={todoMetaStyle}>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const uid = Number(e.target.value);
+                    if (uid && !currentIds.includes(uid)) {
+                      onUpdateAssignees([...currentIds, uid]);
+                    }
+                  }}
+                  style={todoSelectStyle}
+                  aria-label="指派成員"
+                >
+                  <option value="">
+                    {currentIds.length === 0 ? "指派成員" : "+ 成員"}
+                  </option>
+                  {members
+                    .filter((m) => !currentIds.includes(m.userId))
+                    .map((m) => (
+                      <option key={m.userId} value={m.userId}>
+                        {m.displayName}
+                      </option>
+                    ))}
+                </select>
+              </span>
+            </div>
+
+            {todo.assignedUsers.length > 0 && (
+              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
+                {todo.assignedUsers.map((u) => (
+                  <span key={u.userId} style={assigneeChipStyle}>
+                    {u.displayName}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateAssignees(currentIds.filter((id) => id !== u.userId))
+                      }
+                      style={assigneeChipRemoveStyle}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.3rem",
+                marginTop: "0.3rem",
+              }}
+            >
+              <span style={{ ...groupPillDotStyle, background: groupColor }} />
+              <select
+                value={todo.lineGroupId}
+                onChange={(e) => onUpdateGroup(e.target.value)}
+                style={{
+                  fontSize: "0.72rem",
+                  color: THEME.textMuted,
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+                aria-label="所屬群組"
+              >
+                {groups.map((g) => (
+                  <option key={g.lineGroupId} value={g.lineGroupId}>
+                    {g.name?.trim() || "未命名群組"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.1rem" }}>
+              {dueDateDisplay && (
+                <span style={{ fontSize: "0.76rem", color: THEME.textMuted, display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  {dueDateDisplay}
+                </span>
+              )}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+                <span style={{ ...groupPillDotStyle, background: groupColor }} />
+                <span style={{ fontSize: "0.72rem", color: THEME.textMuted }}>{groupName}</span>
+              </span>
+            </div>
+
+            {todo.assignedUsers.length > 0 && (
+              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
+                {todo.assignedUsers.map((u) => (
+                  <span key={u.userId} style={{ ...assigneeChipStyle, cursor: "default" }}>
+                    {u.displayName}
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: "0.15rem", flexShrink: 0, marginTop: "0.1rem" }}>
+        {!todo.isCompleted && (
+          <button
+            type="button"
+            onClick={() => setCardEditing((v) => !v)}
+            aria-label={cardEditing ? "完成編輯" : "編輯待辦事項"}
+            style={{
+              border: "none",
+              background: cardEditing ? `rgba(${THEME.accentRgb}, 0.12)` : "transparent",
+              color: cardEditing ? THEME.accent : THEME.textMuted,
+              cursor: "pointer",
+              fontSize: "1.15rem",
+              padding: "0.35rem 0.45rem",
+              borderRadius: "8px",
+              lineHeight: 1,
+              transition: "background 0.15s, color 0.15s",
+            }}
+          >
+            ✎
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onDelete}
+          aria-label="刪除待辦事項"
+          style={todoDeleteBtnStyle}
+        >
+          ✕
+        </button>
+      </div>
+    </article>
+  );
+}

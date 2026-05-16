@@ -1,5 +1,6 @@
 import {
   claimEventSummary,
+  createTodoItemsFromSummary,
   getEventSummaryProcessingDetails,
   getGoogleCredentialByLineUserId,
   markEventSummaryCompleted,
@@ -98,6 +99,18 @@ async function handleSummaryJob(request: Request) {
       summaryJson: summary,
       summaryText,
     });
+
+    try {
+      if (summary.actionItems.length > 0) {
+        await createTodoItemsFromSummary({
+          summaryId,
+          groupId: details.groupId,
+          items: summary.actionItems,
+        });
+      }
+    } catch (todoErr) {
+      console.error("[qstash.summary.todo-items]", todoErr);
+    }
 
     await client.pushMessage({
       to: details.lineGroupId,

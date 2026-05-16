@@ -9,6 +9,7 @@ node_modules/
 # Next.js
 .next/
 out/
+*.tsbuildinfo
 
 # misc
 .DS_Store
@@ -19,3 +20,5 @@ out/
 .cert/
 localhost.pem
 localhost-key.pem
+.vercel
+.claude/

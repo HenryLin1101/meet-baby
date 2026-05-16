@@ -6,6 +6,7 @@ type ChatGroupRow = {
   line_group_id: string;
   name: string | null;
   picture_url: string | null;
+  drive_folder_id: string | null;
 };
 
 type LineUserRow = {
@@ -218,10 +219,43 @@ export type CreatedSummary = {
 
 export type SummaryProcessingDetails = {
   summaryId: number;
+  groupId: number;
   lineGroupId: string;
   requestedByLineUserId: string;
   sourceDriveUrl: string;
   sourceDriveFileId: string;
+};
+
+/** API 回傳給前端的待辦事項格式（camelCase） */
+export type TodoItemFromAPI = {
+  id: number;
+  summaryId: number | null;
+  groupId: number;
+  lineGroupId: string;
+  groupName: string;
+  meetingTitle: string;
+  item: string;
+  owner: string;
+  assignedUsers: { userId: number; displayName: string }[];
+  due: string;
+  isCompleted: boolean;
+  completedAt: string | null;
+  createdAt: string;
+};
+
+/** Supabase 查詢回傳的原始 row 格式（snake_case），僅供 repository 內部使用 */
+type TodoItemRow = {
+  id: number;
+  summary_id: number;
+  group_id: number;
+  item: string;
+  owner: string;
+  due: string;
+  is_completed: boolean;
+  completed_by_user_id: number | null;
+  completed_at: string | null;
+  deleted_at: string | null;
+  created_at: string;
 };
 
 export class RepositoryError extends Error {
@@ -325,7 +359,7 @@ async function getChatGroupByLineGroupId(
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .eq("line_group_id", lineGroupId)
     .maybeSingle<ChatGroupRow>();
 
@@ -418,7 +452,7 @@ export async function ensureChatGroup(
   const { data, error } = await supabase
     .from("chat_groups")
     .upsert(insertPayload, { onConflict: "line_group_id" })
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .single<ChatGroupRow>();
 
   assertNoError(error, "建立或更新群組資料失敗。");
@@ -432,7 +466,7 @@ export async function ensureChatGroup(
 
 export async function upsertLineUser(
   input: LineUserProfileInput
-): Promise<void> {
+): Promise<number> {
   const supabase = getSupabaseAdmin();
   const lineUserId = requireNonEmpty(input.lineUserId, "lineUserId");
   const displayName = requireNonEmpty(input.displayName, "displayName");
@@ -454,19 +488,24 @@ export async function upsertLineUser(
       .eq("id", existing.id);
 
     assertNoError(error, "更新 LINE 使用者資料失敗。");
-    return;
+    return existing.id;
   }
 
-  const { error } = await supabase.from("line_users").insert({
-    line_user_id: lineUserId,
-    display_name: displayName,
-    picture_url: normalizeOptionalText(input.pictureUrl),
-    status_message: normalizeOptionalText(input.statusMessage),
-    language_code: normalizeOptionalText(input.languageCode),
-    email: normalizeOptionalText(input.email),
-  });
+  const { data, error } = await supabase
+    .from("line_users")
+    .insert({
+      line_user_id: lineUserId,
+      display_name: displayName,
+      picture_url: normalizeOptionalText(input.pictureUrl),
+      status_message: normalizeOptionalText(input.statusMessage),
+      language_code: normalizeOptionalText(input.languageCode),
+      email: normalizeOptionalText(input.email),
+    })
+    .select("id")
+    .single<{ id: number }>();
 
   assertNoError(error, "建立 LINE 使用者資料失敗。");
+  return data!.id;
 }
 
 export async function upsertGroupMembership(
@@ -716,7 +755,7 @@ export async function listUserGroups(lineUserId: string): Promise<UserChatGroup[
 
   const { data, error } = await supabase
     .from("group_memberships")
-    .select("group_id, chat_groups(id, line_group_id, name, picture_url)")
+    .select("group_id, chat_groups(id, line_group_id, name, picture_url, drive_folder_id)")
     .eq("user_id", user.id)
     .eq("is_active", true);
 
@@ -930,7 +969,7 @@ export async function getEventReminderDetails(
 
   const { data: group, error: groupError } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .eq("id", Number(event.group_id))
     .maybeSingle<ChatGroupRow>();
 
@@ -1258,7 +1297,7 @@ export async function getEventSummaryProcessingDetails(
 
   const { data: group, error: groupError } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .eq("id", Number(summary.group_id))
     .maybeSingle<ChatGroupRow>();
   assertNoError(groupError, "讀取群組資料失敗。");
@@ -1278,6 +1317,7 @@ export async function getEventSummaryProcessingDetails(
 
   return {
     summaryId: Number(summary.id),
+    groupId: Number(summary.group_id),
     lineGroupId: String(group.line_group_id),
     requestedByLineUserId: String(user.line_user_id),
     sourceDriveUrl: String(summary.source_drive_url),
@@ -1354,4 +1394,407 @@ export function hasCalendarScope(credential: GoogleCredential): boolean {
     .map((s) => s.trim())
     .filter(Boolean);
   return tokens.includes(CALENDAR_SCOPE);
+}
+
+// ---------------------------------------------------------------------------
+// Todo Items
+// ---------------------------------------------------------------------------
+
+export async function createTodoItemsFromSummary(input: {
+  summaryId: number;
+  groupId: number;
+  items: { item: string; owner: string; due: string }[];
+}): Promise<void> {
+  if (input.items.length === 0) return;
+
+  const supabase = getSupabaseAdmin();
+  const summaryId = requireFiniteNumber(input.summaryId, "summaryId");
+  const groupId = requireFiniteNumber(input.groupId, "groupId");
+
+  const rows = input.items.map((i) => ({
+    summary_id: summaryId,
+    group_id: groupId,
+    item: i.item,
+    owner: i.owner ?? "",
+    due: i.due ?? "",
+  }));
+
+  const { error } = await supabase.from("todo_items").insert(rows);
+  assertNoError(error, "建立待辦事項失敗。");
+}
+
+async function syncTodoAssignees(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  todoId: number,
+  userIds: number[]
+) {
+  const { error: delErr } = await supabase
+    .from("todo_item_assignees")
+    .delete()
+    .eq("todo_id", todoId);
+  assertNoError(delErr, "清除指派成員失敗。");
+
+  if (userIds.length > 0) {
+    const rows = userIds.map((uid) => ({ todo_id: todoId, user_id: uid }));
+    const { error: insErr } = await supabase
+      .from("todo_item_assignees")
+      .insert(rows);
+    assertNoError(insErr, "指派成員失敗。");
+  }
+}
+
+export async function createTodoItem(input: {
+  lineUserId: string;
+  groupId: number;
+  item: string;
+  due?: string;
+  assignedUserIds?: number[];
+}): Promise<TodoItemFromAPI | null> {
+  const supabase = getSupabaseAdmin();
+  const lineUserId = requireNonEmpty(input.lineUserId, "lineUserId");
+  const groupId = requireFiniteNumber(input.groupId, "groupId");
+  const item = requireNonEmpty(input.item, "item");
+
+  const user = await getLineUserByLineUserId(lineUserId);
+  if (!user) {
+    throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
+  }
+
+  const membership = await getActiveMembership(groupId, user.id);
+  if (!membership) {
+    throw new RepositoryError("你不是此群組的有效成員。", 403, "FORBIDDEN");
+  }
+
+  const row: Record<string, unknown> = {
+    group_id: groupId,
+    item,
+    owner: user.display_name ?? "",
+  };
+  if (input.due) row.due = input.due;
+
+  const { data, error } = await supabase
+    .from("todo_items")
+    .insert(row)
+    .select("id")
+    .single<{ id: number }>();
+  assertNoError(error, "建立待辦事項失敗。");
+  if (!data) return null;
+
+  if (input.assignedUserIds && input.assignedUserIds.length > 0) {
+    await syncTodoAssignees(supabase, data.id, input.assignedUserIds);
+  }
+
+  const result = await listTodoItemsByGroupIds([groupId]);
+  return result.find((r) => r.id === data.id) ?? null;
+}
+
+export async function listTodoItemsByGroupIds(
+  groupIds: number[]
+): Promise<TodoItemFromAPI[]> {
+  const supabase = getSupabaseAdmin();
+  const ids = [...new Set(groupIds.map(Number))].filter(Number.isFinite);
+  if (ids.length === 0) return [];
+
+  const { data: rows, error } = await supabase
+    .from("todo_items")
+    .select(
+      "id, summary_id, group_id, item, owner, due, is_completed, completed_at, created_at"
+    )
+    .in("group_id", ids)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
+  assertNoError(error, "讀取待辦事項失敗。");
+
+  const items = (rows ?? []) as TodoItemRow[];
+  if (items.length === 0) return [];
+
+  const todoIds = items.map((r) => Number(r.id));
+  const summaryIds = [...new Set(
+    items.map((r) => r.summary_id != null ? Number(r.summary_id) : NaN)
+  )].filter(Number.isFinite);
+  const groupIdSet = [...new Set(items.map((r) => Number(r.group_id)))].filter(
+    Number.isFinite
+  );
+
+  const { data: assigneeRows, error: assigneeErr } = await supabase
+    .from("todo_item_assignees")
+    .select("todo_id, user_id")
+    .in("todo_id", todoIds);
+  assertNoError(assigneeErr, "讀取指派成員失敗。");
+
+  const assigneeUserIds = [
+    ...new Set(
+      ((assigneeRows ?? []) as { todo_id: number; user_id: number }[]).map((r) => Number(r.user_id))
+    ),
+  ].filter(Number.isFinite);
+
+  let userNameMap = new Map<number, string>();
+  if (assigneeUserIds.length > 0) {
+    const { data: users, error: usrErr } = await supabase
+      .from("line_users")
+      .select("id, display_name")
+      .in("id", assigneeUserIds);
+    assertNoError(usrErr, "讀取指派使用者失敗。");
+    userNameMap = new Map(
+      ((users ?? []) as { id: number; display_name: string }[]).map((u) => [
+        Number(u.id),
+        String(u.display_name),
+      ])
+    );
+  }
+
+  const todoAssigneesMap = new Map<number, { userId: number; displayName: string }[]>();
+  for (const r of (assigneeRows ?? []) as { todo_id: number; user_id: number }[]) {
+    const tid = Number(r.todo_id);
+    const uid = Number(r.user_id);
+    if (!todoAssigneesMap.has(tid)) todoAssigneesMap.set(tid, []);
+    todoAssigneesMap.get(tid)!.push({
+      userId: uid,
+      displayName: userNameMap.get(uid) ?? "未知使用者",
+    });
+  }
+
+  const { data: summaries, error: sumErr } = await supabase
+    .from("event_summaries")
+    .select("id, summary_json")
+    .in("id", summaryIds.length > 0 ? summaryIds : [0]);
+  assertNoError(sumErr, "讀取會議總結失敗。");
+
+  const topicMap = new Map<number, string>();
+  for (const s of (summaries ?? []) as { id: number; summary_json: { topic?: string } | null }[]) {
+    topicMap.set(Number(s.id), s.summary_json?.topic ?? "未知會議");
+  }
+
+  const { data: groups, error: grpErr } = await supabase
+    .from("chat_groups")
+    .select("id, line_group_id, name")
+    .in("id", groupIdSet);
+  assertNoError(grpErr, "讀取群組資料失敗。");
+
+  const groupLineIdMap = new Map<number, string>(
+    ((groups ?? []) as { id: number; line_group_id: string; name: string | null }[]).map((g) => [
+      Number(g.id),
+      String(g.line_group_id),
+    ])
+  );
+
+  const groupNameMap = new Map<number, string>(
+    ((groups ?? []) as { id: number; line_group_id: string; name: string | null }[]).map((g) => [
+      Number(g.id),
+      g.name?.trim() || "未命名群組",
+    ])
+  );
+
+  return items
+    .map((row) => {
+      const lineGroupId = groupLineIdMap.get(Number(row.group_id));
+      if (!lineGroupId) return null;
+      return {
+        id: Number(row.id),
+        summaryId: row.summary_id != null ? Number(row.summary_id) : null,
+        groupId: Number(row.group_id),
+        lineGroupId,
+        groupName: groupNameMap.get(Number(row.group_id)) ?? "未命名群組",
+        meetingTitle: row.summary_id != null
+          ? topicMap.get(Number(row.summary_id)) ?? "未知會議"
+          : "",
+        item: String(row.item),
+        owner: String(row.owner),
+        assignedUsers: todoAssigneesMap.get(Number(row.id)) ?? [],
+        due: String(row.due),
+        isCompleted: Boolean(row.is_completed),
+        completedAt: row.completed_at ?? null,
+        createdAt: String(row.created_at),
+      } satisfies TodoItemFromAPI;
+    })
+    .filter((x): x is TodoItemFromAPI => Boolean(x));
+}
+
+export async function toggleTodoItemCompleted(input: {
+  id: number;
+  lineUserId: string;
+  isCompleted: boolean;
+}): Promise<TodoItemFromAPI | null> {
+  const supabase = getSupabaseAdmin();
+  const todoId = requireFiniteNumber(input.id, "id");
+  const lineUserId = requireNonEmpty(input.lineUserId, "lineUserId");
+
+  const user = await getLineUserByLineUserId(lineUserId);
+  if (!user) {
+    throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
+  }
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from("todo_items")
+    .select("id, group_id")
+    .eq("id", todoId)
+    .is("deleted_at", null)
+    .maybeSingle<{ id: number; group_id: number }>();
+  assertNoError(fetchErr, "讀取待辦事項失敗。");
+  if (!existing) return null;
+
+  const membership = await getActiveMembership(existing.group_id, user.id);
+  if (!membership) {
+    throw new RepositoryError("你不是此群組的有效成員。", 403, "FORBIDDEN");
+  }
+
+  const { error: updateErr } = await supabase
+    .from("todo_items")
+    .update({
+      is_completed: input.isCompleted,
+      completed_by_user_id: input.isCompleted ? user.id : null,
+      completed_at: input.isCompleted ? new Date().toISOString() : null,
+    })
+    .eq("id", todoId);
+  assertNoError(updateErr, "更新待辦事項狀態失敗。");
+
+  const result = await listTodoItemsByGroupIds([existing.group_id]);
+  return result.find((r) => r.id === todoId) ?? null;
+}
+
+export async function updateTodoItem(input: {
+  id: number;
+  lineUserId: string;
+  item?: string;
+  due?: string;
+  groupId?: number;
+  assignedUserIds?: number[];
+}): Promise<TodoItemFromAPI | null> {
+  const supabase = getSupabaseAdmin();
+  const todoId = requireFiniteNumber(input.id, "id");
+  const lineUserId = requireNonEmpty(input.lineUserId, "lineUserId");
+
+  const user = await getLineUserByLineUserId(lineUserId);
+  if (!user) {
+    throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
+  }
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from("todo_items")
+    .select("id, group_id")
+    .eq("id", todoId)
+    .is("deleted_at", null)
+    .maybeSingle<{ id: number; group_id: number }>();
+  assertNoError(fetchErr, "讀取待辦事項失敗。");
+  if (!existing) return null;
+
+  const membership = await getActiveMembership(existing.group_id, user.id);
+  if (!membership) {
+    throw new RepositoryError("你不是此群組的有效成員。", 403, "FORBIDDEN");
+  }
+
+  const updates: Record<string, unknown> = {};
+  if (typeof input.item === "string") updates.item = input.item;
+  if (typeof input.due === "string") updates.due = input.due;
+  if (input.groupId !== undefined) {
+    const newGroupId = requireFiniteNumber(input.groupId, "groupId");
+    const newMembership = await getActiveMembership(newGroupId, user.id);
+    if (!newMembership) {
+      throw new RepositoryError("你不是目標群組的有效成員。", 403, "FORBIDDEN");
+    }
+    updates.group_id = newGroupId;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    const { error: updateErr } = await supabase
+      .from("todo_items")
+      .update(updates)
+      .eq("id", todoId);
+    assertNoError(updateErr, "更新待辦事項失敗。");
+  }
+
+  if (input.assignedUserIds !== undefined) {
+    await syncTodoAssignees(supabase, todoId, input.assignedUserIds);
+  }
+
+  const finalGroupId = input.groupId ?? existing.group_id;
+  const result = await listTodoItemsByGroupIds([finalGroupId]);
+  return result.find((r) => r.id === todoId) ?? null;
+}
+
+export async function deleteTodoItem(input: {
+  id: number;
+  lineUserId: string;
+}): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  const todoId = requireFiniteNumber(input.id, "id");
+  const lineUserId = requireNonEmpty(input.lineUserId, "lineUserId");
+
+  const user = await getLineUserByLineUserId(lineUserId);
+  if (!user) {
+    throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
+  }
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from("todo_items")
+    .select("id, group_id")
+    .eq("id", todoId)
+    .is("deleted_at", null)
+    .maybeSingle<{ id: number; group_id: number }>();
+  assertNoError(fetchErr, "讀取待辦事項失敗。");
+  if (!existing) return false;
+
+  const membership = await getActiveMembership(existing.group_id, user.id);
+  if (!membership) {
+    throw new RepositoryError("你不是此群組的有效成員。", 403, "FORBIDDEN");
+  }
+
+  const { data, error: deleteErr } = await supabase
+    .from("todo_items")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", todoId)
+    .is("deleted_at", null)
+    .select("id")
+    .maybeSingle<{ id: number }>();
+  assertNoError(deleteErr, "刪除待辦事項失敗。");
+  return Boolean(data);
+}
+
+// ---------------------------------------------------------------------------
+// Drive Folders
+// ---------------------------------------------------------------------------
+
+export async function upsertGroupDriveFolderId(
+  lineGroupId: string,
+  driveFolderId: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const trimmedGroupId = requireNonEmpty(lineGroupId, "lineGroupId");
+  const trimmedFolderId = requireNonEmpty(driveFolderId, "driveFolderId");
+  const { error } = await supabase
+    .from("chat_groups")
+    .upsert(
+      { line_group_id: trimmedGroupId, drive_folder_id: trimmedFolderId },
+      { onConflict: "line_group_id" }
+    );
+  assertNoError(error, "更新群組 Drive 資料夾 ID 失敗。");
+}
+
+export async function getGroupDriveFolderId(
+  lineGroupId: string
+): Promise<string | null> {
+  const supabase = getSupabaseAdmin();
+  const trimmedGroupId = requireNonEmpty(lineGroupId, "lineGroupId");
+  const { data, error } = await supabase
+    .from("chat_groups")
+    .select("drive_folder_id")
+    .eq("line_group_id", trimmedGroupId)
+    .maybeSingle<{ drive_folder_id: string | null }>();
+  assertNoError(error, "讀取群組 Drive 資料夾 ID 失敗。");
+  return data?.drive_folder_id ?? null;
+}
+
+export async function setEventDriveFolderId(
+  eventId: number,
+  driveFolderId: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
+  const trimmedFolderId = requireNonEmpty(driveFolderId, "driveFolderId");
+  const { error } = await supabase
+    .from("events")
+    .update({ drive_folder_id: trimmedFolderId })
+    .eq("id", normalizedEventId);
+  assertNoError(error, "更新活動 Drive 資料夾 ID 失敗。");
 }
