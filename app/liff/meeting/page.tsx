@@ -277,9 +277,9 @@ export default function MeetingLiffPage() {
               <div className={styles.meetingTypeGroup} role="radiogroup">
                 {(
                   [
-                    { value: "inPerson", emoji: "🏢", label: "實體" },
-                    { value: "online", emoji: "💻", label: "線上" },
-                    { value: "hybrid", emoji: "🔀", label: "混合" },
+                    { value: "inPerson", label: "實體" },
+                    { value: "online", label: "線上" },
+                    { value: "hybrid", label: "混合" },
                   ] as Array<{ value: MeetingType; emoji: string; label: string }>
                 ).map((opt) => {
                   const active = meetingType === opt.value;
