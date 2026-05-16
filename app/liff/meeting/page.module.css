@@ -181,6 +181,25 @@
   box-shadow: 0 6px 18px rgba(45, 52, 54, 0.06), 0 1px 4px rgba(45, 52, 54, 0.04);
 }
 
+.consentScreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.consentInner {
+  text-align: center;
+  gap: 1.25rem;
+}
+
+.consentTitle {
+  font-size: 2rem;
+}
+
+.consentBody {
+  font-size: 0.95rem;
+}
+
 .calendarConnectButton {
   display: inline-block;
   background: #00c2ff;

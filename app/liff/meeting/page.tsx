@@ -16,6 +16,7 @@ import styles from "./page.module.css";
 type Status =
   | "loading"
   | "checkingCalendar"
+  | "calendarDisconnected"
   | "loadingMembers"
   | "ready"
   | "submitting"
@@ -89,6 +90,17 @@ export default function MeetingLiffPage() {
     setStatus("ready");
   }
 
+  async function handleSkipCalendarConsent() {
+    try {
+      const currentLineUserId =
+        liff.getDecodedIDToken()?.sub?.trim() ?? null;
+      await loadGroupMembers(groupId, accessToken, currentLineUserId);
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : "讀取群組成員失敗");
+    }
+  }
+
   useEffect(() => {
     if (!LIFF_ID) return;
 
@@ -131,6 +143,11 @@ export default function MeetingLiffPage() {
 
         setHasCalendarScope(Boolean(scopePayload.hasCalendarScope));
         setConsentPageUrl(scopePayload.consentPageUrl ?? "");
+
+        if (!scopePayload.hasCalendarScope) {
+          setStatus("calendarDisconnected");
+          return;
+        }
 
         if (cancelled) return;
         await loadGroupMembers(nextGroupId, nextAccessToken, currentLineUserId);
@@ -219,6 +236,43 @@ export default function MeetingLiffPage() {
     (status === "loading" ||
       status === "checkingCalendar" ||
       status === "loadingMembers");
+
+  if (status === "calendarDisconnected") {
+    return (
+      <main className={`${styles.main} ${styles.consentScreen}`}>
+        <div className={`${styles.pageInner} ${styles.consentInner}`}>
+          <h1 className={`${styles.pageTitle} ${styles.consentTitle}`}>
+            連結 Google 日曆
+          </h1>
+          <p className={`${styles.pageSubtitle} ${styles.consentBody}`}>
+            米特寶寶需要 Google 日曆權限才能產生 Meet 連結。
+            請點下方按鈕在外部瀏覽器完成授權（LINE 內建瀏覽器會被 Google 擋）。
+          </p>
+          {consentPageUrl ? (
+            <a
+              href={consentPageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.calendarConnectButton}
+            >
+              連結 Google 日曆
+            </a>
+          ) : (
+            <p className={styles.modalConsentFallback}>
+              無法產生授權連結，請關閉後重新開啟。
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={handleSkipCalendarConsent}
+            className={styles.calendarSkipButton}
+          >
+            稍後再說（不產生 Meet 連結）
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <>
