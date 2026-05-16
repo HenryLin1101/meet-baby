@@ -29,6 +29,7 @@ export async function GET(request: Request) {
       displayName: verifiedUser.displayName,
       pictureUrl: verifiedUser.pictureUrl,
       statusMessage: verifiedUser.statusMessage,
+      email: verifiedUser.email,
     });
 
     const credential = await getGoogleCredentialByLineUserId(verifiedUser.lineUserId);

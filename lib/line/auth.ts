@@ -3,6 +3,7 @@ export type VerifiedLineUserProfile = {
   displayName: string;
   pictureUrl: string | null;
   statusMessage: string | null;
+  email: string | null;
 };
 
 export class LineAuthError extends Error {
@@ -48,10 +49,28 @@ export async function verifyLineAccessToken(
     throw new LineAuthError("LINE 使用者資料不完整。", 401);
   }
 
+  const email = await fetchLineUserEmail(accessToken);
+
   return {
     lineUserId: profile.userId,
     displayName: profile.displayName,
     pictureUrl: profile.pictureUrl?.trim() ?? null,
     statusMessage: profile.statusMessage?.trim() ?? null,
+    email,
   };
+}
+
+async function fetchLineUserEmail(accessToken: string): Promise<string | null> {
+  try {
+    const response = await fetch("https://api.line.me/oauth2/v2.1/userinfo", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { email?: string };
+    return data.email?.trim() || null;
+  } catch {
+    return null;
+  }
 }

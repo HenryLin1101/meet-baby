@@ -39,6 +39,7 @@ export type LineUserReference = {
   userId: number;
   lineUserId: string;
   displayName: string;
+  email: string | null;
 };
 
 type GroupMemberRow = {
@@ -140,7 +141,7 @@ export type CreatedEvent = {
   endsAt: string | null;
   timezone: string;
   attendeeDisplayNames: string[];
-  meetUrl: string | null;
+  meetingUrl: string | null;
   calendarEventId: string | null;
 };
 
@@ -188,7 +189,7 @@ export type EventReminderDetails = {
   reminderMessageId: string | null;
   reminderScheduledAt: string | null;
   reminderSentAt: string | null;
-  meetUrl: string | null;
+  meetingUrl: string | null;
   attendees: LineUserReference[];
 };
 
@@ -347,7 +348,7 @@ function toCreatedEvent(row: CreatedEventRow): CreatedEvent {
     attendeeDisplayNames: Array.isArray(row.attendee_display_names)
       ? row.attendee_display_names.map(String)
       : [],
-    meetUrl: row.meeting_url === null ? null : String(row.meeting_url),
+    meetingUrl: row.meeting_url === null ? null : String(row.meeting_url),
     calendarEventId:
       row.calendar_event_id === null ? null : String(row.calendar_event_id),
   };
@@ -588,6 +589,22 @@ export async function listActiveGroupMembers(
   });
 }
 
+export async function setLineUserEmailByLineUserId(
+  lineUserId: string,
+  email: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedLineUserId = requireNonEmpty(lineUserId, "lineUserId");
+  const normalizedEmail = requireNonEmpty(email, "email");
+
+  const { error } = await supabase
+    .from("line_users")
+    .update({ email: normalizedEmail })
+    .eq("line_user_id", normalizedLineUserId);
+
+  assertNoError(error, "更新 LINE 使用者 email 失敗。");
+}
+
 export async function listLineUsersByIds(
   userIds: number[]
 ): Promise<LineUserReference[]> {
@@ -600,7 +617,7 @@ export async function listLineUsersByIds(
 
   const { data, error } = await supabase
     .from("line_users")
-    .select("id, line_user_id, display_name")
+    .select("id, line_user_id, display_name, email")
     .in("id", normalizedUserIds)
     .order("display_name", { ascending: true })
     .order("id", { ascending: true });
@@ -611,6 +628,7 @@ export async function listLineUsersByIds(
     userId: Number(row.id),
     lineUserId: String(row.line_user_id),
     displayName: String(row.display_name),
+    email: row.email === null || row.email === undefined ? null : String(row.email),
   }));
 }
 
@@ -1007,7 +1025,7 @@ export async function getEventReminderDetails(
         : new Date(event.reminder_scheduled_at).toISOString(),
     reminderSentAt:
       event.reminder_sent_at === null ? null : new Date(event.reminder_sent_at).toISOString(),
-    meetUrl: event.meeting_url === null ? null : String(event.meeting_url),
+    meetingUrl: event.meeting_url === null ? null : String(event.meeting_url),
     attendees,
   };
 }
@@ -1379,17 +1397,17 @@ export async function markEventSummaryFailed(input: {
 
 export async function updateEventCalendarData(input: {
   eventId: number;
-  meetUrl: string;
+  meetingUrl: string;
   calendarEventId: string;
 }): Promise<void> {
   const supabase = getSupabaseAdmin();
   const eventId = requireFiniteNumber(input.eventId, "eventId");
-  const meetUrl = requireNonEmpty(input.meetUrl, "meetUrl");
+  const meetingUrl = requireNonEmpty(input.meetingUrl, "meetingUrl");
   const calendarEventId = requireNonEmpty(input.calendarEventId, "calendarEventId");
 
   const { error } = await supabase
     .from("events")
-    .update({ meeting_url: meetUrl, calendar_event_id: calendarEventId })
+    .update({ meeting_url: meetingUrl, calendar_event_id: calendarEventId })
     .eq("id", eventId);
   assertNoError(error, "儲存 Google 日曆資訊失敗。");
 }

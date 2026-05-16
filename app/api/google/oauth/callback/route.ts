@@ -1,9 +1,13 @@
 import {
   consumeGoogleOAuthState,
   setEventSummaryQStashMessageId,
+  setLineUserEmailByLineUserId,
   upsertGoogleCredentialForLineUser,
 } from "@/lib/db/repository";
-import { exchangeCodeForTokens } from "@/lib/google/oauth";
+import {
+  exchangeCodeForTokens,
+  fetchGoogleUserEmail,
+} from "@/lib/google/oauth";
 import { publishSummaryJob } from "@/lib/summaries/qstash";
 
 export const runtime = "nodejs";
@@ -55,6 +59,17 @@ export async function GET(request: Request) {
       refreshToken,
       scopes: tokens.scope ?? null,
     });
+
+    if (tokens.access_token) {
+      try {
+        const googleEmail = await fetchGoogleUserEmail(tokens.access_token);
+        if (googleEmail) {
+          await setLineUserEmailByLineUserId(consumed.lineUserId, googleEmail);
+        }
+      } catch (emailErr) {
+        console.error("[google-oauth.callback.email]", emailErr);
+      }
+    }
 
     // Auto-start summary job if this OAuth was triggered by a summary request.
     if (consumed.summaryId) {

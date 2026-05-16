@@ -45,6 +45,7 @@ type CreateEventRequestBody = {
   location?: string;
   note?: string;
   attendeeUserIds?: number[];
+  wantsMeetingLink?: boolean;
 };
 
 function errorResponse(message: string, status: number) {
@@ -82,6 +83,7 @@ function parseBody(body: CreateEventRequestBody) {
     location: body.location?.trim() ?? "",
     note: body.note?.trim() ?? "",
     attendeeUserIds,
+    wantsMeetingLink: body.wantsMeetingLink !== false,
   };
 }
 
@@ -107,6 +109,7 @@ export async function POST(request: Request) {
       displayName: verifiedUser.displayName,
       pictureUrl: verifiedUser.pictureUrl,
       statusMessage: verifiedUser.statusMessage,
+      email: verifiedUser.email,
     });
 
     const createdEvent = await createEventWithAttendees({
@@ -119,31 +122,42 @@ export async function POST(request: Request) {
       attendeeUserIds: input.attendeeUserIds,
       timezone: "Asia/Taipei",
     });
+    const attendeeLineUsers = await listLineUsersByIds(input.attendeeUserIds);
+
     // Try to create Google Calendar event and get Meet URL (non-fatal).
-    let meetUrl: string | null = null;
-    try {
+    // Skipped entirely if the user didn't request a meeting link.
+    let meetingUrl: string | null = null;
+    if (input.wantsMeetingLink) {
+      try {
       const credential = await getGoogleCredentialByLineUserId(verifiedUser.lineUserId);
       if (credential && hasCalendarScope(credential)) {
         const { accessToken } = await refreshAccessToken(credential.refreshToken);
+        const attendeeEmails = attendeeLineUsers
+          .map((user) => user.email)
+          .filter((email): email is string => Boolean(email));
         const calResult = await createCalendarEventWithMeet({
           accessToken,
           title: createdEvent.title,
           startsAt: createdEvent.startsAt,
           location: createdEvent.location,
           description: createdEvent.description,
+          attendeeEmails,
         });
-        await updateEventCalendarData({
-          eventId: createdEvent.eventId,
-          meetUrl: calResult.meetUrl,
-          calendarEventId: calResult.calendarEventId,
-        });
-        meetUrl = calResult.meetUrl;
+        meetingUrl = calResult.meetingUrl;
+        try {
+          await updateEventCalendarData({
+            eventId: createdEvent.eventId,
+            meetingUrl: calResult.meetingUrl,
+            calendarEventId: calResult.calendarEventId,
+          });
+        } catch (dbErr) {
+          console.error("[create-event.calendar.persist]", dbErr);
+        }
       }
     } catch (err) {
       console.error("[create-event.calendar]", err);
     }
-
-    const attendeeLineUsers = await listLineUsersByIds(input.attendeeUserIds);
+    }
 
     const summary = buildMeetingSummary({
       title: createdEvent.title,
@@ -170,7 +184,7 @@ export async function POST(request: Request) {
                   timezone: createdEvent.timezone,
                   location: createdEvent.location,
                   note: createdEvent.description,
-                  meetUrl,
+                  meetingUrl,
                   attendees: attendeeLineUsers,
                 }),
               ]
@@ -269,7 +283,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         eventId: createdEvent.eventId,
-        meetUrl,
+        meetingUrl,
         notificationSent,
         reminderScheduled,
         autoSummaryScheduled,
@@ -309,6 +323,7 @@ export async function GET(request: Request) {
       displayName: verifiedUser.displayName,
       pictureUrl: verifiedUser.pictureUrl,
       statusMessage: verifiedUser.statusMessage,
+      email: verifiedUser.email,
     });
 
     const events = await listGroupEvents(groupId);

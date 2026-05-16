@@ -11,7 +11,7 @@ type EventMentionMessageInput = {
   timezone?: string;
   location?: string | null;
   note?: string | null;
-  meetUrl?: string | null;
+  meetingUrl?: string | null;
   attendees: MentionTarget[];
   prefixLine?: string;
 };
@@ -49,8 +49,8 @@ export function buildEventMentionMessage(input: EventMentionMessageInput) {
     lines.push(`參與者：${attendeePlaceholders.join("、")}`);
   }
 
-  const meetUrl = input.meetUrl?.trim();
-  if (meetUrl) lines.push(`Meet：${meetUrl}`);
+  const meetingUrl = input.meetingUrl?.trim();
+  if (meetingUrl) lines.push(`Meet：${meetingUrl}`);
 
   const note = input.note?.trim();
   if (note) lines.push(`備註：${note}`);
