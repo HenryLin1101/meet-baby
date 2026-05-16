@@ -98,12 +98,24 @@ CREATE TABLE IF NOT EXISTS events (
   reminder_processing_at TIMESTAMPTZ,
   reminder_sent_at TIMESTAMPTZ,
   reminder_last_error TEXT,
+  auto_summary_qstash_message_id TEXT,
+  auto_summary_scheduled_at TIMESTAMPTZ,
+  auto_summary_completed_at TIMESTAMPTZ,
+  auto_summary_last_error TEXT,
+  auto_summary_attempt_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT events_time_range_check CHECK (
     ends_at IS NULL OR ends_at > starts_at
   )
 );
+
+ALTER TABLE events
+  ADD COLUMN IF NOT EXISTS auto_summary_qstash_message_id TEXT,
+  ADD COLUMN IF NOT EXISTS auto_summary_scheduled_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS auto_summary_completed_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS auto_summary_last_error TEXT,
+  ADD COLUMN IF NOT EXISTS auto_summary_attempt_count INTEGER NOT NULL DEFAULT 0;
 
 ALTER TABLE events
   ADD COLUMN IF NOT EXISTS reminder_message_id TEXT,

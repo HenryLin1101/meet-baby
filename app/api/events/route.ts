@@ -2,6 +2,7 @@ import {
   createEventWithAttendees,
   getGoogleCredentialByLineUserId,
   hasCalendarScope,
+  setEventAutoSummarySchedule,
   setEventReminderSchedule,
   listGroupEvents,
   listLineUsersByIds,
@@ -31,6 +32,7 @@ import {
   formatMeetingDateTime,
 } from "@/lib/modules/meeting";
 import { publishEventReminder } from "@/lib/reminders/qstash";
+import { publishTactiqScanJob } from "@/lib/summaries/qstash";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -197,6 +199,24 @@ export async function POST(request: Request) {
       console.error("[create-event.schedule-reminder]", error);
     }
 
+    let autoSummaryScheduled = true;
+    try {
+      const scan = await publishTactiqScanJob({
+        eventId: createdEvent.eventId,
+        attempt: 1,
+        startsAt: createdEvent.startsAt,
+        endsAt: createdEvent.endsAt,
+      });
+      await setEventAutoSummarySchedule({
+        eventId: createdEvent.eventId,
+        messageId: scan.messageId,
+        scheduledAt: scan.scheduledAt,
+      });
+    } catch (error) {
+      autoSummaryScheduled = false;
+      console.error("[create-event.schedule-auto-summary]", error);
+    }
+
     let driveFolderUrl: string | null = null;
     try {
       let parentFolderId = await getGroupDriveFolderId(input.groupId);
@@ -252,6 +272,7 @@ export async function POST(request: Request) {
         meetUrl,
         notificationSent,
         reminderScheduled,
+        autoSummaryScheduled,
         driveFolderUrl,
       },
       { status: 201 }
