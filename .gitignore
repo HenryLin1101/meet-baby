@@ -22,3 +22,4 @@ localhost.pem
 localhost-key.pem
 .vercel
 .claude/
+.playwright-mcp/
