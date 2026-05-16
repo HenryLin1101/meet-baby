@@ -4,15 +4,14 @@ import liff from "@line/liff";
 import {
   useEffect,
   useState,
-  type CSSProperties,
   type FormEvent,
   type ReactNode,
 } from "react";
 import { initLiffOrThrow } from "@/lib/liff/client";
 import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
 import MascotLoadingScreen from "@/lib/liff/MascotLoadingScreen";
-import { LIFF_UI_THEME as THEME } from "@/lib/liff/liffUiTheme";
 import MemberMultiSelect from "@/lib/tools/MemberMultiSelect";
+import styles from "./page.module.css";
 
 type Status =
   | "loading"
@@ -37,7 +36,6 @@ export default function MeetingLiffPage() {
   const [errorMsg, setErrorMsg] = useState<string>(
     LIFF_ID ? "" : MISSING_LIFF_ENV_MSG
   );
-  const { isCompact } = useResponsiveFlags();
 
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -226,36 +224,20 @@ export default function MeetingLiffPage() {
     <>
       {showBlockingLoader && <MascotLoadingScreen />}
       {!showBlockingLoader && (
-    <main
-      style={{
-        ...mainStyle,
-        width: "100%",
-        maxWidth: "100vw",
-        overflowX: "hidden",
-        boxSizing: "border-box",
-        padding: isCompact ? "0.75rem 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px))" : "1.25rem 1rem calc(1.5rem + env(safe-area-inset-bottom, 0px))",
-      }}
-    >
-      <div style={pageInnerStyle}>
-        <h1
-          style={{
-            ...pageTitleStyle,
-            fontSize: isCompact ? "2.1rem" : "2.5rem",
-          }}
-        >
-          預約會議
-        </h1>
-        <p style={pageSubtitleStyle}>
+    <main className={styles.main}>
+      <div className={styles.pageInner}>
+        <h1 className={styles.pageTitle}>預約會議</h1>
+        <p className={styles.pageSubtitle}>
           填寫資料送出後，會建立活動並通知群組。
         </p>
 
-        {status === "error" && <div style={errorBoxStyle}>{errorMsg}</div>}
+        {status === "error" && <div className={styles.errorBox}>{errorMsg}</div>}
 
-        <div style={formPanelStyle}>
-          <form onSubmit={handleSubmit} style={formStyle}>
+        <div className={styles.formPanel}>
+          <form onSubmit={handleSubmit} className={styles.form}>
             <Field label="會議主題" required>
               <input
-                style={inputStyle}
+                className={styles.input}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="例如：專案同步會議"
@@ -266,11 +248,11 @@ export default function MeetingLiffPage() {
             </Field>
 
             {/* 日期/時間直向堆疊；外層限制寬度避免原生 date/time 撐破白卡 */}
-            <div style={dateTimeRowWrapStyle}>
-              <Row isCompact>
+            <div className={styles.dateTimeRowWrap}>
+              <Row>
                 <Field label="日期" required>
                   <input
-                    style={dateTimeInputStyle}
+                    className={styles.dateTimeInput}
                     type="date"
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
@@ -280,7 +262,7 @@ export default function MeetingLiffPage() {
                 </Field>
                 <Field label="時間" required>
                   <input
-                    style={dateTimeInputStyle}
+                    className={styles.dateTimeInput}
                     type="time"
                     value={time}
                     onChange={(e) => setTime(e.target.value)}
@@ -292,12 +274,12 @@ export default function MeetingLiffPage() {
             </div>
 
             <Field label="會議形式" required>
-              <div style={meetingTypeGroupStyle} role="radiogroup">
+              <div className={styles.meetingTypeGroup} role="radiogroup">
                 {(
                   [
-                    { value: "inPerson", label: "實體" },
-                    { value: "online", label: "線上" },
-                    { value: "hybrid", label: "混合" },
+                    { value: "inPerson", emoji: "🏢", label: "實體" },
+                    { value: "online", emoji: "💻", label: "線上" },
+                    { value: "hybrid", emoji: "🔀", label: "混合" },
                   ] as Array<{ value: MeetingType; emoji: string; label: string }>
                 ).map((opt) => {
                   const active = meetingType === opt.value;
@@ -309,20 +291,16 @@ export default function MeetingLiffPage() {
                       aria-checked={active}
                       onClick={() => setMeetingType(opt.value)}
                       disabled={disabled}
-                      style={{
-                        ...meetingTypeOptionStyle,
-                        ...(active ? meetingTypeOptionActiveStyle : null),
-                        cursor: disabled ? "not-allowed" : "pointer",
-                      }}
+                      className={`${styles.meetingTypeOption} ${active ? styles.meetingTypeOptionActive : ""}`}
                     >
-                      <span style={{ fontSize: "1.2rem" }}>{opt.emoji}</span>
+                      <span className={styles.meetingTypeOptionEmoji}>{opt.emoji}</span>
                       <span>{opt.label}</span>
                     </button>
                   );
                 })}
               </div>
               {meetingType !== "inPerson" && (
-                <p style={meetingTypeHintStyle}>
+                <p className={styles.meetingTypeHint}>
                   系統會自動產生 Google Meet 連結並一併通知群組。
                 </p>
               )}
@@ -331,7 +309,7 @@ export default function MeetingLiffPage() {
             {meetingType !== "online" && (
               <Field label="地點">
                 <input
-                  style={inputStyle}
+                  className={styles.input}
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   placeholder="例如：會議室 A"
@@ -342,7 +320,8 @@ export default function MeetingLiffPage() {
 
             <Field label="備註">
               <textarea
-                style={{ ...inputStyle, minHeight: "5.5rem", resize: "vertical" }}
+                className={styles.input}
+                style={{ minHeight: "5.5rem", resize: "vertical" }}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="選填"
@@ -356,17 +335,12 @@ export default function MeetingLiffPage() {
                 selectedIds={selectedAttendeeIds}
                 onChange={setSelectedAttendeeIds}
                 disabled={disabled || members.length === 0}
-                compact={isCompact}
               />
             </Field>
 
             <button
               type="submit"
-              style={{
-                ...submitButtonStyle,
-                opacity: disabled ? 0.55 : 1,
-                cursor: disabled ? "not-allowed" : "pointer",
-              }}
+              className={styles.submitButton}
               disabled={disabled}
             >
               {status === "submitting"
@@ -381,15 +355,15 @@ export default function MeetingLiffPage() {
             </button>
 
             {status === "done" && createdMeetingUrl && (
-              <div style={meetingUrlBoxStyle}>
-                <span style={{ fontWeight: 700, marginBottom: "0.35rem", display: "block" }}>
+              <div className={styles.meetingUrlBox}>
+                <span className={styles.meetingUrlBoxLabel}>
                   Google Meet 連結
                 </span>
                 <a
                   href={createdMeetingUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ color: THEME.accent, wordBreak: "break-all", fontSize: "0.9rem" }}
+                  className={styles.meetingUrlBoxLink}
                 >
                   {createdMeetingUrl}
                 </a>
@@ -404,44 +378,44 @@ export default function MeetingLiffPage() {
         <div
           role="dialog"
           aria-modal="true"
-          style={modalOverlayStyle}
+          className={styles.modalOverlay}
           onClick={() => setConsentModalVisible(false)}
         >
           <div
-            style={modalCardStyle}
+            className={styles.modalCard}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 style={modalTitleStyle}>連結 Google 日曆</h2>
-            <p style={modalBodyStyle}>
+            <h2 className={styles.modalTitle}>連結 Google 日曆</h2>
+            <p className={styles.modalBody}>
               需要 Google 日曆權限才能產生 Meet 連結。
               請在外部瀏覽器完成授權（LINE 內建瀏覽器會被 Google 擋）。
             </p>
-            <div style={modalActionsStyle}>
+            <div className={styles.modalActions}>
               {consentPageUrl ? (
                 <a
                   href={consentPageUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={calendarConnectButtonStyle}
+                  className={styles.calendarConnectButton}
                 >
                   連結 Google 日曆
                 </a>
               ) : (
-                <p style={{ color: THEME.textMuted, fontSize: "0.85rem" }}>
+                <p className={styles.modalConsentFallback}>
                   無法產生授權連結，請關閉後重新開啟。
                 </p>
               )}
               <button
                 type="button"
                 onClick={() => submitEvent(false)}
-                style={calendarSkipButtonStyle}
+                className={styles.calendarSkipButton}
               >
                 不要 Meet 連結，直接送出
               </button>
               <button
                 type="button"
                 onClick={() => setConsentModalVisible(false)}
-                style={modalCancelButtonStyle}
+                className={styles.modalCancelButton}
               >
                 取消
               </button>
@@ -463,327 +437,16 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <label style={fieldStyle}>
-      <span style={labelStyle}>
+    <label className={styles.field}>
+      <span className={styles.label}>
         {label}
-        {required && <span style={requiredStyle}> *</span>}
+        {required && <span className={styles.required}> *</span>}
       </span>
       {children}
     </label>
   );
 }
 
-function Row({
-  children,
-  isCompact,
-}: {
-  children: ReactNode;
-  isCompact?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        ...rowStyle,
-        flexDirection: isCompact ? "column" : "row",
-      }}
-    >
-      {children}
-    </div>
-  );
+function Row({ children }: { children: ReactNode }) {
+  return <div className={styles.row}>{children}</div>;
 }
-
-function useResponsiveFlags() {
-  const [isCompact, setIsCompact] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const media = window.matchMedia("(max-width: 640px)");
-    const update = () => setIsCompact(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-
-  return { isCompact };
-}
-
-const mainStyle: CSSProperties = {
-  minHeight: "100vh",
-  background: `linear-gradient(165deg, ${THEME.pageBg} 0%, ${THEME.pageBgAlt} 55%, ${THEME.pageBg} 100%)`,
-  color: THEME.text,
-};
-
-const pageInnerStyle: CSSProperties = {
-  maxWidth: "26rem",
-  width: "100%",
-  minWidth: 0,
-  margin: "0 auto",
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.65rem",
-  boxSizing: "border-box",
-};
-
-const pageTitleStyle: CSSProperties = {
-  margin: 0,
-  color: THEME.text,
-  letterSpacing: "-0.03em",
-  fontWeight: 800,
-  lineHeight: 1.15,
-};
-
-const pageSubtitleStyle: CSSProperties = {
-  margin: "0 0 0.35rem",
-  fontSize: "0.9rem",
-  color: THEME.textMuted,
-  lineHeight: 1.45,
-};
-
-const formPanelStyle: CSSProperties = {
-  background: `linear-gradient(145deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.88) 100%)`,
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: THEME.radiusPanel,
-  padding: "1.1rem 0.75rem 1.15rem",
-  boxShadow: THEME.shadowPanel,
-  backdropFilter: `saturate(1.1) blur(${THEME.glassBlur})`,
-  WebkitBackdropFilter: `saturate(1.1) blur(${THEME.glassBlur})`,
-  width: "100%",
-  maxWidth: "100%",
-  minWidth: 0,
-  boxSizing: "border-box",
-  overflow: "hidden",
-};
-
-const formStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "1.1rem",
-  width: "100%",
-  minWidth: 0,
-  maxWidth: "100%",
-  boxSizing: "border-box",
-};
-
-const dateTimeRowWrapStyle: CSSProperties = {
-  width: "100%",
-  minWidth: 0,
-  maxWidth: "100%",
-  overflow: "hidden",
-  boxSizing: "border-box",
-};
-
-const fieldStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.45rem",
-  flex: "1 1 auto",
-  minWidth: 0,
-  width: "100%",
-  maxWidth: "100%",
-  boxSizing: "border-box",
-};
-
-const labelStyle: CSSProperties = {
-  fontSize: "0.82rem",
-  fontWeight: 700,
-  color: THEME.textMuted,
-};
-
-const requiredStyle: CSSProperties = {
-  color: THEME.accent,
-};
-
-const rowStyle: CSSProperties = {
-  display: "flex",
-  gap: "0.75rem",
-  flexWrap: "wrap",
-  width: "100%",
-  minWidth: 0,
-  maxWidth: "100%",
-  boxSizing: "border-box",
-  alignItems: "stretch",
-};
-
-const inputStyle: CSSProperties = {
-  background: THEME.surfaceSubtle,
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: THEME.radiusInput,
-  color: THEME.text,
-  padding: "0.85rem 0.95rem",
-  fontSize: "16px",
-  fontFamily: "inherit",
-  width: "100%",
-  maxWidth: "100%",
-  minWidth: 0,
-  minHeight: "2.85rem",
-  boxSizing: "border-box",
-  WebkitTapHighlightColor: "transparent",
-  boxShadow: THEME.shadowCard,
-};
-
-/** 原生 date/time 在窄容器內易超出，單獨收斂寬度 */
-const dateTimeInputStyle: CSSProperties = {
-  ...inputStyle,
-  display: "block",
-  width: "100%",
-  maxWidth: "100%",
-  minWidth: 0,
-  flex: "none",
-};
-
-const submitButtonStyle: CSSProperties = {
-  marginTop: "0.35rem",
-  width: "100%",
-  minHeight: "3rem",
-  background: THEME.accent,
-  color: "#FFFFFF",
-  border: "none",
-  borderRadius: "18px",
-  padding: "0.75rem 1rem",
-  fontSize: "1.02rem",
-  fontWeight: 800,
-  letterSpacing: "0.02em",
-  boxShadow: `0 8px 22px rgba(${THEME.accentRgb}, 0.35)`,
-  WebkitTapHighlightColor: "transparent",
-};
-
-const errorBoxStyle: CSSProperties = {
-  background: THEME.errorBg,
-  border: `1px solid ${THEME.errorBorder}`,
-  color: THEME.errorText,
-  padding: "0.75rem 1rem",
-  borderRadius: THEME.radiusControl,
-  fontSize: "0.9rem",
-  boxShadow: THEME.shadowCard,
-};
-
-const calendarConnectButtonStyle: CSSProperties = {
-  display: "inline-block",
-  background: THEME.accent,
-  color: "#FFFFFF",
-  border: "none",
-  borderRadius: "18px",
-  padding: "0.85rem 1.5rem",
-  fontSize: "1rem",
-  textAlign: "center",
-  fontWeight: 800,
-  textDecoration: "none",
-  boxShadow: `0 8px 22px rgba(${THEME.accentRgb}, 0.35)`,
-  WebkitTapHighlightColor: "transparent",
-};
-
-const modalOverlayStyle: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0, 0, 0, 0.5)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "1.25rem",
-  zIndex: 10000,
-};
-
-const modalCardStyle: CSSProperties = {
-  width: "100%",
-  maxWidth: "26rem",
-  background: THEME.surface,
-  borderRadius: "20px",
-  padding: "1.5rem",
-  boxShadow: "0 24px 60px rgba(0, 0, 0, 0.25)",
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.85rem",
-};
-
-const modalTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "1.25rem",
-  fontWeight: 800,
-  color: THEME.text,
-};
-
-const modalBodyStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "0.9rem",
-  color: THEME.textMuted,
-  lineHeight: 1.55,
-};
-
-const modalActionsStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.6rem",
-  marginTop: "0.5rem",
-};
-
-const modalCancelButtonStyle: CSSProperties = {
-  background: "transparent",
-  color: THEME.textMuted,
-  border: "none",
-  padding: "0.55rem",
-  fontSize: "0.85rem",
-  fontWeight: 600,
-  cursor: "pointer",
-  WebkitTapHighlightColor: "transparent",
-};
-
-const meetingTypeGroupStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: "0.5rem",
-};
-
-const meetingTypeOptionStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "0.25rem",
-  background: THEME.surface,
-  color: THEME.text,
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: "16px",
-  padding: "0.7rem 0.4rem",
-  fontSize: "0.92rem",
-  fontWeight: 700,
-  transition: "all 120ms ease",
-  WebkitTapHighlightColor: "transparent",
-};
-
-const meetingTypeOptionActiveStyle: CSSProperties = {
-  background: `rgba(${THEME.accentRgb}, 0.12)`,
-  borderColor: THEME.accent,
-  color: THEME.accent,
-  boxShadow: `0 4px 14px rgba(${THEME.accentRgb}, 0.22)`,
-};
-
-const meetingTypeHintStyle: CSSProperties = {
-  margin: "0.5rem 0 0",
-  fontSize: "0.82rem",
-  color: THEME.textMuted,
-  lineHeight: 1.45,
-};
-
-const calendarSkipButtonStyle: CSSProperties = {
-  display: "inline-block",
-  background: "transparent",
-  color: THEME.textMuted,
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: "18px",
-  padding: "0.6rem 1.25rem",
-  fontSize: "0.88rem",
-  fontWeight: 600,
-  cursor: "pointer",
-  WebkitTapHighlightColor: "transparent",
-};
-
-const meetingUrlBoxStyle: CSSProperties = {
-  marginTop: "0.5rem",
-  background: THEME.surfaceSubtle,
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: THEME.radiusInput,
-  padding: "0.75rem 0.95rem",
-  fontSize: "0.88rem",
-  boxShadow: THEME.shadowCard,
-};
