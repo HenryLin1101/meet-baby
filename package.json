@@ -7,6 +7,8 @@
   },
   "scripts": {
     "dev": "next dev",
+    "dev:webpack": "next dev --webpack",
+    "dev:https": "next dev --experimental-https --experimental-https-key localhost-key.pem --experimental-https-cert localhost.pem --port 9000",
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0"

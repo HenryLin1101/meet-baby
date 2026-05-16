@@ -50,6 +50,54 @@ export default function MeetingLiffPage() {
   const [consentPageUrl, setConsentPageUrl] = useState("");
   const [createdMeetUrl, setCreatedMeetUrl] = useState<string | null>(null);
 
+  async function loadGroupMembers(
+    nextGroupId: string,
+    nextAccessToken: string,
+    currentLineUserId: string | null
+  ): Promise<void> {
+    setStatus("loadingMembers");
+
+    const response = await fetch(
+      `/api/group-members?groupId=${encodeURIComponent(nextGroupId)}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${nextAccessToken}` },
+        cache: "no-store",
+      }
+    );
+
+    const payload = (await response.json()) as {
+      error?: string;
+      currentLineUserId?: string;
+      members?: GroupMember[];
+    };
+
+    if (!response.ok) {
+      throw new Error(payload.error ?? "讀取群組成員失敗");
+    }
+
+    const nextMembers = payload.members ?? [];
+    const fallbackCurrentUserId = payload.currentLineUserId ?? currentLineUserId;
+    const defaultSelected = nextMembers
+      .filter((member) => member.lineUserId === fallbackCurrentUserId)
+      .map((member) => String(member.userId));
+
+    setMembers(nextMembers);
+    setSelectedAttendeeIds(defaultSelected);
+    setStatus("ready");
+  }
+
+  async function handleSkipCalendarConsent() {
+    try {
+      const currentLineUserId =
+        liff.getDecodedIDToken()?.sub?.trim() ?? null;
+      await loadGroupMembers(groupId, accessToken, currentLineUserId);
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : "讀取群組成員失敗");
+    }
+  }
+
   useEffect(() => {
     if (!LIFF_ID) return;
 
@@ -96,40 +144,8 @@ export default function MeetingLiffPage() {
           return;
         }
 
-        setStatus("loadingMembers");
-
-        const response = await fetch(
-          `/api/group-members?groupId=${encodeURIComponent(nextGroupId)}`,
-          {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${nextAccessToken}`,
-            },
-            cache: "no-store",
-          }
-        );
-
-        const payload = (await response.json()) as {
-          error?: string;
-          currentLineUserId?: string;
-          members?: GroupMember[];
-        };
-
-        if (!response.ok) {
-          throw new Error(payload.error ?? "讀取群組成員失敗");
-        }
-
-        const nextMembers = payload.members ?? [];
-        const fallbackCurrentUserId = payload.currentLineUserId ?? currentLineUserId;
-        const defaultSelected = nextMembers
-          .filter((member) => member.lineUserId === fallbackCurrentUserId)
-          .map((member) => String(member.userId));
-
         if (cancelled) return;
-
-        setMembers(nextMembers);
-        setSelectedAttendeeIds(defaultSelected);
-        setStatus("ready");
+        await loadGroupMembers(nextGroupId, nextAccessToken, currentLineUserId);
       } catch (err) {
         if (cancelled) return;
         setStatus("error");
@@ -227,6 +243,13 @@ export default function MeetingLiffPage() {
               無法產生授權連結，請關閉後重新開啟。
             </p>
           )}
+          <button
+            type="button"
+            onClick={handleSkipCalendarConsent}
+            style={calendarSkipButtonStyle}
+          >
+            稍後再說（不產生 Meet 連結）
+          </button>
         </div>
       </main>
     );
@@ -591,6 +614,19 @@ const calendarConnectButtonStyle: CSSProperties = {
   fontWeight: 800,
   textDecoration: "none",
   boxShadow: `0 8px 22px rgba(${THEME.accentRgb}, 0.35)`,
+  WebkitTapHighlightColor: "transparent",
+};
+
+const calendarSkipButtonStyle: CSSProperties = {
+  display: "inline-block",
+  background: "transparent",
+  color: THEME.textMuted,
+  border: `1px solid ${THEME.surfaceBorder}`,
+  borderRadius: "18px",
+  padding: "0.6rem 1.25rem",
+  fontSize: "0.88rem",
+  fontWeight: 600,
+  cursor: "pointer",
   WebkitTapHighlightColor: "transparent",
 };
 
