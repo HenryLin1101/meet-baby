@@ -43,6 +43,7 @@ type CreateEventRequestBody = {
   location?: string;
   note?: string;
   attendeeUserIds?: number[];
+  wantsMeetingLink?: boolean;
 };
 
 function errorResponse(message: string, status: number) {
@@ -80,6 +81,7 @@ function parseBody(body: CreateEventRequestBody) {
     location: body.location?.trim() ?? "",
     note: body.note?.trim() ?? "",
     attendeeUserIds,
+    wantsMeetingLink: body.wantsMeetingLink !== false,
   };
 }
 
@@ -121,8 +123,10 @@ export async function POST(request: Request) {
     const attendeeLineUsers = await listLineUsersByIds(input.attendeeUserIds);
 
     // Try to create Google Calendar event and get Meet URL (non-fatal).
+    // Skipped entirely if the user didn't request a meeting link.
     let meetingUrl: string | null = null;
-    try {
+    if (input.wantsMeetingLink) {
+      try {
       const credential = await getGoogleCredentialByLineUserId(verifiedUser.lineUserId);
       if (credential && hasCalendarScope(credential)) {
         const { accessToken } = await refreshAccessToken(credential.refreshToken);
@@ -150,6 +154,7 @@ export async function POST(request: Request) {
       }
     } catch (err) {
       console.error("[create-event.calendar]", err);
+    }
     }
 
     const summary = buildMeetingSummary({

@@ -17,12 +17,13 @@ import MemberMultiSelect from "@/lib/tools/MemberMultiSelect";
 type Status =
   | "loading"
   | "checkingCalendar"
-  | "calendarDisconnected"
   | "loadingMembers"
   | "ready"
   | "submitting"
   | "done"
   | "error";
+
+type MeetingType = "inPerson" | "online" | "hybrid";
 
 type GroupMember = {
   userId: number;
@@ -49,6 +50,9 @@ export default function MeetingLiffPage() {
   const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>([]);
   const [consentPageUrl, setConsentPageUrl] = useState("");
   const [createdMeetingUrl, setCreatedMeetingUrl] = useState<string | null>(null);
+  const [meetingType, setMeetingType] = useState<MeetingType>("online");
+  const [hasCalendarScope, setHasCalendarScope] = useState(false);
+  const [consentModalVisible, setConsentModalVisible] = useState(false);
 
   async function loadGroupMembers(
     nextGroupId: string,
@@ -85,17 +89,6 @@ export default function MeetingLiffPage() {
     setMembers(nextMembers);
     setSelectedAttendeeIds(defaultSelected);
     setStatus("ready");
-  }
-
-  async function handleSkipCalendarConsent() {
-    try {
-      const currentLineUserId =
-        liff.getDecodedIDToken()?.sub?.trim() ?? null;
-      await loadGroupMembers(groupId, accessToken, currentLineUserId);
-    } catch (err) {
-      setStatus("error");
-      setErrorMsg(err instanceof Error ? err.message : "讀取群組成員失敗");
-    }
   }
 
   useEffect(() => {
@@ -138,11 +131,8 @@ export default function MeetingLiffPage() {
         };
         if (cancelled) return;
 
-        if (!scopePayload.hasCalendarScope) {
-          setConsentPageUrl(scopePayload.consentPageUrl ?? "");
-          setStatus("calendarDisconnected");
-          return;
-        }
+        setHasCalendarScope(Boolean(scopePayload.hasCalendarScope));
+        setConsentPageUrl(scopePayload.consentPageUrl ?? "");
 
         if (cancelled) return;
         await loadGroupMembers(nextGroupId, nextAccessToken, currentLineUserId);
@@ -166,6 +156,17 @@ export default function MeetingLiffPage() {
       return;
     }
 
+    const wantsMeetingLink = meetingType !== "inPerson";
+    if (wantsMeetingLink && !hasCalendarScope) {
+      setConsentModalVisible(true);
+      return;
+    }
+
+    await submitEvent(wantsMeetingLink);
+  }
+
+  async function submitEvent(wantsMeetingLink: boolean) {
+    setConsentModalVisible(false);
     setStatus("submitting");
 
     try {
@@ -183,6 +184,7 @@ export default function MeetingLiffPage() {
           location,
           note,
           attendeeUserIds: selectedAttendeeIds.map(Number),
+          wantsMeetingLink,
         }),
       });
 
@@ -219,41 +221,6 @@ export default function MeetingLiffPage() {
     (status === "loading" ||
       status === "checkingCalendar" ||
       status === "loadingMembers");
-
-  if (status === "calendarDisconnected") {
-    return (
-      <main style={{ ...mainStyle, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ ...pageInnerStyle, textAlign: "center", gap: "1.25rem" }}>
-          <h1 style={{ ...pageTitleStyle, fontSize: "2rem" }}>連結 Google 日曆</h1>
-          <p style={{ ...pageSubtitleStyle, fontSize: "0.95rem" }}>
-            米特寶寶需要 Google 日曆權限才能產生 Meet 連結。
-            請點下方按鈕在外部瀏覽器完成授權（LINE 內建瀏覽器會被 Google 擋）。
-          </p>
-          {consentPageUrl ? (
-            <a
-              href={consentPageUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={calendarConnectButtonStyle}
-            >
-              連結 Google 日曆
-            </a>
-          ) : (
-            <p style={{ color: THEME.textMuted, fontSize: "0.88rem" }}>
-              無法產生授權連結，請關閉後重新開啟。
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={handleSkipCalendarConsent}
-            style={calendarSkipButtonStyle}
-          >
-            稍後再說（不產生 Meet 連結）
-          </button>
-        </div>
-      </main>
-    );
-  }
 
   return (
     <>
@@ -324,15 +291,54 @@ export default function MeetingLiffPage() {
               </Row>
             </div>
 
-            <Field label="地點">
-              <input
-                style={inputStyle}
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="選填，例如：會議室 A、線上連結"
-                disabled={disabled}
-              />
+            <Field label="會議形式" required>
+              <div style={meetingTypeGroupStyle} role="radiogroup">
+                {(
+                  [
+                    { value: "inPerson", label: "實體" },
+                    { value: "online", label: "線上" },
+                    { value: "hybrid", label: "混合" },
+                  ] as Array<{ value: MeetingType; emoji: string; label: string }>
+                ).map((opt) => {
+                  const active = meetingType === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => setMeetingType(opt.value)}
+                      disabled={disabled}
+                      style={{
+                        ...meetingTypeOptionStyle,
+                        ...(active ? meetingTypeOptionActiveStyle : null),
+                        cursor: disabled ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      <span style={{ fontSize: "1.2rem" }}>{opt.emoji}</span>
+                      <span>{opt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {meetingType !== "inPerson" && (
+                <p style={meetingTypeHintStyle}>
+                  系統會自動產生 Google Meet 連結並一併通知群組。
+                </p>
+              )}
             </Field>
+
+            {meetingType !== "online" && (
+              <Field label="地點">
+                <input
+                  style={inputStyle}
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="例如：會議室 A"
+                  disabled={disabled}
+                />
+              </Field>
+            )}
 
             <Field label="備註">
               <textarea
@@ -393,6 +399,55 @@ export default function MeetingLiffPage() {
         </div>
       </div>
     </main>
+      )}
+      {consentModalVisible && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={modalOverlayStyle}
+          onClick={() => setConsentModalVisible(false)}
+        >
+          <div
+            style={modalCardStyle}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={modalTitleStyle}>連結 Google 日曆</h2>
+            <p style={modalBodyStyle}>
+              需要 Google 日曆權限才能產生 Meet 連結。
+              請在外部瀏覽器完成授權（LINE 內建瀏覽器會被 Google 擋）。
+            </p>
+            <div style={modalActionsStyle}>
+              {consentPageUrl ? (
+                <a
+                  href={consentPageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={calendarConnectButtonStyle}
+                >
+                  連結 Google 日曆
+                </a>
+              ) : (
+                <p style={{ color: THEME.textMuted, fontSize: "0.85rem" }}>
+                  無法產生授權連結，請關閉後重新開啟。
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => submitEvent(false)}
+                style={calendarSkipButtonStyle}
+              >
+                不要 Meet 連結，直接送出
+              </button>
+              <button
+                type="button"
+                onClick={() => setConsentModalVisible(false)}
+                style={modalCancelButtonStyle}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
@@ -611,10 +666,103 @@ const calendarConnectButtonStyle: CSSProperties = {
   borderRadius: "18px",
   padding: "0.85rem 1.5rem",
   fontSize: "1rem",
+  textAlign: "center",
   fontWeight: 800,
   textDecoration: "none",
   boxShadow: `0 8px 22px rgba(${THEME.accentRgb}, 0.35)`,
   WebkitTapHighlightColor: "transparent",
+};
+
+const modalOverlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0, 0, 0, 0.5)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "1.25rem",
+  zIndex: 10000,
+};
+
+const modalCardStyle: CSSProperties = {
+  width: "100%",
+  maxWidth: "26rem",
+  background: THEME.surface,
+  borderRadius: "20px",
+  padding: "1.5rem",
+  boxShadow: "0 24px 60px rgba(0, 0, 0, 0.25)",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.85rem",
+};
+
+const modalTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "1.25rem",
+  fontWeight: 800,
+  color: THEME.text,
+};
+
+const modalBodyStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "0.9rem",
+  color: THEME.textMuted,
+  lineHeight: 1.55,
+};
+
+const modalActionsStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.6rem",
+  marginTop: "0.5rem",
+};
+
+const modalCancelButtonStyle: CSSProperties = {
+  background: "transparent",
+  color: THEME.textMuted,
+  border: "none",
+  padding: "0.55rem",
+  fontSize: "0.85rem",
+  fontWeight: 600,
+  cursor: "pointer",
+  WebkitTapHighlightColor: "transparent",
+};
+
+const meetingTypeGroupStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: "0.5rem",
+};
+
+const meetingTypeOptionStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "0.25rem",
+  background: THEME.surface,
+  color: THEME.text,
+  border: `1px solid ${THEME.surfaceBorder}`,
+  borderRadius: "16px",
+  padding: "0.7rem 0.4rem",
+  fontSize: "0.92rem",
+  fontWeight: 700,
+  transition: "all 120ms ease",
+  WebkitTapHighlightColor: "transparent",
+};
+
+const meetingTypeOptionActiveStyle: CSSProperties = {
+  background: `rgba(${THEME.accentRgb}, 0.12)`,
+  borderColor: THEME.accent,
+  color: THEME.accent,
+  boxShadow: `0 4px 14px rgba(${THEME.accentRgb}, 0.22)`,
+};
+
+const meetingTypeHintStyle: CSSProperties = {
+  margin: "0.5rem 0 0",
+  fontSize: "0.82rem",
+  color: THEME.textMuted,
+  lineHeight: 1.45,
 };
 
 const calendarSkipButtonStyle: CSSProperties = {
