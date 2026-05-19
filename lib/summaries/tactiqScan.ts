@@ -14,9 +14,10 @@ import {
 import { createMessagingClient } from "@/lib/line/messagingClient";
 import {
   buildTranscriptSearchWindow,
-  getDefaultMaxAttempts,
+  getAutoSummaryScanDeadlineHours,
+  isAutoSummaryScanPastDeadline,
   resolveAutoSummaryRetryDelaySeconds,
-  resolveEstimatedEventEnd,
+  resolveTranscriptPickReferenceTime,
 } from "@/lib/summaries/schedule";
 import { startSummaryFromDriveFile } from "@/lib/summaries/startSummary";
 import { publishTactiqScanJob } from "@/lib/summaries/qstash";
@@ -40,7 +41,6 @@ export async function runTactiqScanForEvent(input: {
 }): Promise<TactiqScanResult> {
   const eventId = input.eventId;
   const attempt = Math.max(1, input.attempt ?? 1);
-  const maxAttempts = getDefaultMaxAttempts();
 
   const event = await getEventAutoSummaryDetails(eventId);
   if (!event) {
@@ -102,11 +102,24 @@ export async function runTactiqScanForEvent(input: {
     windowEnd,
   });
 
-  const referenceTime = resolveEstimatedEventEnd(event.startsAt, event.endsAt);
+  const referenceTime = resolveTranscriptPickReferenceTime(
+    event.startsAt,
+    event.endsAt,
+    now
+  );
   const picked = pickBestTranscript(candidates, excluded, referenceTime);
 
   if (!picked) {
-    if (attempt >= maxAttempts) {
+    const deadlineHours = getAutoSummaryScanDeadlineHours();
+    const retryDelaySec = resolveAutoSummaryRetryDelaySeconds();
+    const nextRunAt = new Date(now.getTime() + retryDelaySec * 1000);
+    const pastDeadline = isAutoSummaryScanPastDeadline(event.startsAt, now);
+    const nextWouldExceedDeadline = isAutoSummaryScanPastDeadline(
+      event.startsAt,
+      nextRunAt
+    );
+
+    if (pastDeadline || nextWouldExceedDeadline) {
       const message = "transcript_not_found";
       await markEventAutoSummaryFailed(eventId, message);
       try {
@@ -118,7 +131,7 @@ export async function runTactiqScanForEvent(input: {
               type: "text",
               text: [
                 "【自動會議摘要】",
-                `在 Drive 的 Tactiq 資料夾找不到這場會議的逐字稿（已重試 ${maxAttempts} 次）。`,
+                `在 Drive 的 Tactiq 資料夾找不到這場會議的逐字稿（已於會議開始後 ${deadlineHours} 小時內重試）。`,
                 "請確認 Tactiq 已開啟 CC 並同步到 Drive，或手動貼上逐字稿連結請我總結。",
               ].join("\n"),
             },
@@ -134,7 +147,7 @@ export async function runTactiqScanForEvent(input: {
     await publishTactiqScanJob({
       eventId,
       attempt: nextAttempt,
-      delaySeconds: resolveAutoSummaryRetryDelaySeconds(),
+      delaySeconds: retryDelaySec,
     });
 
     return {
