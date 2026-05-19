@@ -14,6 +14,7 @@ export type MeetingSummaryInput = {
   location?: string | null;
   note?: string | null;
   attendeeNames?: string[];
+  driveFolderUrl?: string | null;
 };
 
 const meetings: MeetingDraft[] = [];
@@ -50,6 +51,9 @@ export function buildMeetingSummary(input: MeetingSummaryInput): string {
 
   const note = input.note?.trim();
   if (note) lines.push(`備註：${note}`);
+
+  const driveFolderUrl = input.driveFolderUrl?.trim();
+  if (driveFolderUrl) lines.push(`📁 會議資料夾：\n${driveFolderUrl}`);
 
   return lines.join("\n");
 }

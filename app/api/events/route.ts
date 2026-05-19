@@ -159,17 +159,6 @@ export async function POST(request: Request) {
     }
     }
 
-    const summary = buildMeetingSummary({
-      title: createdEvent.title,
-      timeLabel: formatMeetingDateTime(
-        createdEvent.startsAt,
-        createdEvent.timezone
-      ),
-      location: createdEvent.location,
-      note: createdEvent.description,
-      attendeeNames: createdEvent.attendeeDisplayNames,
-    });
-
     let driveFolderUrl: string | null = null;
     try {
       let parentFolderId = await getGroupDriveFolderId(input.groupId);
@@ -205,9 +194,6 @@ export async function POST(request: Request) {
     let notificationSent = true;
     try {
       const client = createMessagingClient();
-      const driveMessage = driveFolderUrl
-        ? [{ type: "text" as const, text: `📁 會議資料夾：\n${driveFolderUrl}` }]
-        : [];
       await client.pushMessage({
         to: createdEvent.lineGroupId,
         messages:
@@ -220,11 +206,26 @@ export async function POST(request: Request) {
                   location: createdEvent.location,
                   note: createdEvent.description,
                   meetingUrl,
+                  driveFolderUrl,
                   attendees: attendeeLineUsers,
                 }),
-                ...driveMessage,
               ]
-            : [{ type: "text", text: summary }, ...driveMessage],
+            : [
+                {
+                  type: "text" as const,
+                  text: buildMeetingSummary({
+                    title: createdEvent.title,
+                    timeLabel: formatMeetingDateTime(
+                      createdEvent.startsAt,
+                      createdEvent.timezone
+                    ),
+                    location: createdEvent.location,
+                    note: createdEvent.description,
+                    attendeeNames: createdEvent.attendeeDisplayNames,
+                    driveFolderUrl,
+                  }),
+                },
+              ],
       });
     } catch (error) {
       notificationSent = false;
