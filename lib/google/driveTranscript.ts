@@ -5,6 +5,7 @@ export type TactiqTranscriptFile = {
   name: string;
   webViewLink: string;
   modifiedTime: string;
+  createdTime: string;
 };
 
 type DriveFileListResponse = {
@@ -13,12 +14,18 @@ type DriveFileListResponse = {
     name?: string;
     webViewLink?: string;
     modifiedTime?: string;
+    createdTime?: string;
   }>;
 };
 
 type DriveFolderListResponse = {
   files?: Array<{ id?: string }>;
 };
+
+const DEFAULT_EXCLUDED_FILE_NAMES = [
+  "會議詳細資料",
+  "Meeting Details",
+] as const;
 
 function driveApiUrl(path: string): string {
   return `https://www.googleapis.com/drive/v3${path}`;
@@ -36,8 +43,63 @@ export function getTactiqFolderName(): string {
   return process.env.TACTIQ_DRIVE_FOLDER_NAME?.trim() || "Tactiq Transcription";
 }
 
-export function getTactiqTranscriptNameHint(): string {
-  return process.env.TACTIQ_TRANSCRIPT_FILE_NAME?.trim() || "Meeting Transcription";
+/** When set, only files whose name contains this substring are listed. */
+export function getTactiqTranscriptNameHint(): string | null {
+  const hint = process.env.TACTIQ_TRANSCRIPT_FILE_NAME?.trim();
+  return hint || null;
+}
+
+export function getTactiqExcludedFileNames(): string[] {
+  const fromEnv = process.env.TACTIQ_EXCLUDED_FILE_NAMES?.trim();
+  if (!fromEnv) return [...DEFAULT_EXCLUDED_FILE_NAMES];
+  return fromEnv
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+export function isExcludedTactiqMetadataFile(fileName: string): boolean {
+  const normalized = normalizeTitle(fileName);
+  return getTactiqExcludedFileNames().some(
+    (excluded) => normalizeTitle(excluded) === normalized
+  );
+}
+
+export function normalizeTitle(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+export function scoreTranscriptTitleMatch(
+  fileName: string,
+  eventTitle: string
+): number {
+  const file = normalizeTitle(fileName);
+  const event = normalizeTitle(eventTitle);
+  if (!file || !event) return 0;
+  if (file === event) return 100;
+  if (file.includes(event) || event.includes(file)) return 80;
+  return 0;
+}
+
+function isWithinTimeWindow(
+  isoTime: string,
+  windowStart: Date,
+  windowEnd: Date
+): boolean {
+  const t = new Date(isoTime).getTime();
+  if (Number.isNaN(t)) return false;
+  return t > windowStart.getTime() && t < windowEnd.getTime();
+}
+
+function fileMatchesTimeWindow(
+  file: { modifiedTime: string; createdTime: string },
+  windowStart: Date,
+  windowEnd: Date
+): boolean {
+  return (
+    isWithinTimeWindow(file.modifiedTime, windowStart, windowEnd) ||
+    isWithinTimeWindow(file.createdTime, windowStart, windowEnd)
+  );
 }
 
 async function googleFetchJson<T>(url: string, accessToken: string): Promise<T> {
@@ -82,36 +144,55 @@ async function findFolderIdByName(
   return id || null;
 }
 
+/** Lists Google Docs in the Tactiq folder within the time window (all names unless env hint set). */
 export async function listTactiqTranscripts(input: {
   refreshToken: string;
   windowStart: Date;
   windowEnd: Date;
   folderName?: string;
-  transcriptNameHint?: string;
+  transcriptNameHint?: string | null;
 }): Promise<TactiqTranscriptFile[]> {
   const { accessToken } = await refreshAccessToken(input.refreshToken);
   const folderName = input.folderName ?? getTactiqFolderName();
-  const nameHint = input.transcriptNameHint ?? getTactiqTranscriptNameHint();
+  const nameHint =
+    input.transcriptNameHint !== undefined
+      ? input.transcriptNameHint
+      : getTactiqTranscriptNameHint();
 
   const folderId = await findFolderIdByName(accessToken, folderName);
   if (!folderId) {
     return [];
   }
 
-  const q = [
+  const start = toDriveRfc3339(input.windowStart);
+  const end = toDriveRfc3339(input.windowEnd);
+
+  const timeClause = [
+    "(",
+    `(modifiedTime > '${start}' and modifiedTime < '${end}')`,
+    " or ",
+    `(createdTime > '${start}' and createdTime < '${end}')`,
+    ")",
+  ].join("");
+
+  const qParts = [
     `'${folderId}' in parents`,
     "mimeType='application/vnd.google-apps.document'",
     "trashed=false",
-    `modifiedTime > '${toDriveRfc3339(input.windowStart)}'`,
-    `modifiedTime < '${toDriveRfc3339(input.windowEnd)}'`,
-    `name contains '${escapeDriveQueryValue(nameHint)}'`,
-  ].join(" and ");
+    timeClause,
+  ];
+
+  if (nameHint) {
+    qParts.push(`name contains '${escapeDriveQueryValue(nameHint)}'`);
+  }
+
+  const q = qParts.join(" and ");
 
   const url = `${driveApiUrl("/files")}?${new URLSearchParams({
     q,
     orderBy: "modifiedTime desc",
-    pageSize: "20",
-    fields: "files(id,name,webViewLink,modifiedTime)",
+    pageSize: "50",
+    fields: "files(id,name,webViewLink,modifiedTime,createdTime)",
     supportsAllDrives: "true",
     includeItemsFromAllDrives: "true",
   }).toString()}`;
@@ -122,38 +203,83 @@ export async function listTactiqTranscripts(input: {
   for (const file of data.files ?? []) {
     const fileId = file.id?.trim();
     if (!fileId) continue;
-    const name = file.name?.trim() || "Meeting Transcription";
-    const webViewLink =
-      file.webViewLink?.trim() ||
-      `https://docs.google.com/document/d/${fileId}/edit`;
+    const name = file.name?.trim();
+    if (!name || isExcludedTactiqMetadataFile(name)) continue;
+
     const modifiedTime = file.modifiedTime?.trim();
-    if (!modifiedTime) continue;
-    files.push({ fileId, name, webViewLink, modifiedTime });
+    const createdTime = file.createdTime?.trim() ?? modifiedTime;
+    if (!modifiedTime || !createdTime) continue;
+
+    const entry: TactiqTranscriptFile = {
+      fileId,
+      name,
+      webViewLink:
+        file.webViewLink?.trim() ||
+        `https://docs.google.com/document/d/${fileId}/edit`,
+      modifiedTime,
+      createdTime,
+    };
+
+    if (!fileMatchesTimeWindow(entry, input.windowStart, input.windowEnd)) {
+      continue;
+    }
+
+    files.push(entry);
   }
 
   return files;
 }
 
+export type PickTranscriptInput = {
+  excludedFileIds: ReadonlySet<string>;
+  referenceTime: Date;
+  /** When multiple files match, prefer the one closest to this event title. */
+  eventTitle?: string | null;
+};
+
 export function pickBestTranscript(
   candidates: TactiqTranscriptFile[],
-  excludedFileIds: ReadonlySet<string>,
-  referenceTime: Date
+  input: PickTranscriptInput
 ): TactiqTranscriptFile | null {
-  const eligible = candidates.filter((c) => !excludedFileIds.has(c.fileId));
+  const eligible = candidates.filter(
+    (c) =>
+      !input.excludedFileIds.has(c.fileId) &&
+      !isExcludedTactiqMetadataFile(c.name)
+  );
   if (eligible.length === 0) return null;
+  if (eligible.length === 1) return eligible[0];
 
-  const ref = referenceTime.getTime();
+  const eventTitle = input.eventTitle?.trim();
+  const ref = input.referenceTime.getTime();
+
+  if (eventTitle) {
+    const scored = eligible.map((file) => ({
+      file,
+      titleScore: scoreTranscriptTitleMatch(file.name, eventTitle),
+      timeDistance: Math.abs(new Date(file.modifiedTime).getTime() - ref),
+    }));
+
+    const maxTitleScore = Math.max(...scored.map((s) => s.titleScore));
+    const pool =
+      maxTitleScore > 0
+        ? scored.filter((s) => s.titleScore === maxTitleScore)
+        : scored;
+
+    pool.sort((a, b) => {
+      if (b.titleScore !== a.titleScore) return b.titleScore - a.titleScore;
+      return a.timeDistance - b.timeDistance;
+    });
+    return pool[0]?.file ?? null;
+  }
+
   let best = eligible[0];
-  let bestScore = Number.POSITIVE_INFINITY;
-
-  for (const file of eligible) {
-    const modified = new Date(file.modifiedTime).getTime();
-    const score = Math.abs(modified - ref);
-    if (score < bestScore) {
-      bestScore = score;
+  let bestDistance = Math.abs(new Date(best.modifiedTime).getTime() - ref);
+  for (const file of eligible.slice(1)) {
+    const distance = Math.abs(new Date(file.modifiedTime).getTime() - ref);
+    if (distance < bestDistance) {
+      bestDistance = distance;
       best = file;
     }
   }
-
   return best;
 }

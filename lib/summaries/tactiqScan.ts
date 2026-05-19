@@ -107,7 +107,11 @@ export async function runTactiqScanForEvent(input: {
     event.endsAt,
     now
   );
-  const picked = pickBestTranscript(candidates, excluded, referenceTime);
+  const picked = pickBestTranscript(candidates, {
+    excludedFileIds: excluded,
+    referenceTime,
+    eventTitle: event.title,
+  });
 
   if (!picked) {
     const deadlineHours = getAutoSummaryScanDeadlineHours();
@@ -210,7 +214,10 @@ export async function runTactiqScanForGroup(input: {
     windowEnd: now,
   });
 
-  const picked = pickBestTranscript(candidates, excluded, now);
+  const picked = pickBestTranscript(candidates, {
+    excludedFileIds: excluded,
+    referenceTime: now,
+  });
   if (!picked) {
     return { status: "failed", message: "transcript_not_found" };
   }
