@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- 與 lib/liff/liffUiTheme.ts LIFF_UI_THEME.pageBg 一致（Flex 泡泡底） -->
+  <rect width="48" height="48" fill="#F0F2F5"/>
+  <!-- 資料夾外框：左上有標籤頁 -->
+  <path d="M10,13 Q8,13 8,15 L8,38 Q8,40 10,40 L38,40 Q40,40 40,38 L40,19 Q40,17 38,17 L22,17 L19,13 Z" stroke="#4A5568" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- 資料夾內文件線 -->
+  <path d="M14,24 H34 M14,30 H30 M14,36 H24" stroke="#4A5568" stroke-width="2" stroke-linecap="round"/>
+</svg>
