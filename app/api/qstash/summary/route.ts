@@ -12,6 +12,7 @@ import {
   formatMeetingSummaryForLine,
   summarizeMeetingTranscript,
 } from "@/lib/ai/openai";
+import { indexSummary } from "@/lib/ai/indexSummary";
 import { getAppBaseUrlOrThrow } from "@/lib/qstash/client";
 
 export const runtime = "nodejs";
@@ -110,6 +111,19 @@ async function handleSummaryJob(request: Request) {
       }
     } catch (todoErr) {
       console.error("[qstash.summary.todo-items]", todoErr);
+    }
+
+    try {
+      await indexSummary({
+        summaryId,
+        groupId: details.groupId,
+        meetingTitle: exported.title ?? "",
+        summaryJson: summary,
+        summaryText,
+        transcriptText: exported.text,
+      });
+    } catch (indexErr) {
+      console.error("[qstash.summary.index]", indexErr);
     }
 
     await client.pushMessage({
