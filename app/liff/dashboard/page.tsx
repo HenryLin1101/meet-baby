@@ -1093,6 +1093,30 @@ export default function DashboardLiffPage() {
           </div>
         </div>
       </div>
+
+      <div style={{ padding: "0 1rem 1.5rem", maxWidth: "900px", margin: "0 auto", width: "100%" }}>
+        <a
+          href="/liff/rag"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.5rem",
+            width: "100%",
+            padding: "0.85rem",
+            borderRadius: "22px",
+            background: `rgba(0, 194, 255, 0.12)`,
+            border: `1px solid rgba(0, 194, 255, 0.35)`,
+            color: THEME.accent,
+            fontWeight: 700,
+            fontSize: "0.95rem",
+            textDecoration: "none",
+            boxShadow: "0 4px 12px rgba(0, 194, 255, 0.15)",
+          }}
+        >
+          🔍 會議記錄查詢
+        </a>
+      </div>
     </main>
       )}
     </>
