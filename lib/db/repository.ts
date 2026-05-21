@@ -1059,6 +1059,13 @@ export async function createEventWithAttendees(
     throw new RepositoryError("請至少選擇一位參與者。", 400, "INVALID_INPUT");
   }
 
+  const leadTimeMinutes =
+    typeof input.reminderLeadTimeMinutes === "number" &&
+    Number.isFinite(input.reminderLeadTimeMinutes) &&
+    input.reminderLeadTimeMinutes > 0
+      ? Math.round(input.reminderLeadTimeMinutes)
+      : 5;
+
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .rpc("create_event_with_attendees", {
@@ -1071,6 +1078,7 @@ export async function createEventWithAttendees(
       p_ends_at: endsAt?.toISOString() ?? null,
       p_timezone: timezone,
       p_attendee_user_ids: attendeeUserIds,
+      p_reminder_lead_time_minutes: leadTimeMinutes,
     })
     .single<CreatedEventRow>();
 
@@ -1078,21 +1086,6 @@ export async function createEventWithAttendees(
 
   if (!data) {
     throw new RepositoryError("建立活動失敗。", 500, "DB_ERROR");
-  }
-
-  const leadTimeMinutes =
-    typeof input.reminderLeadTimeMinutes === "number" &&
-    Number.isFinite(input.reminderLeadTimeMinutes) &&
-    input.reminderLeadTimeMinutes > 0
-      ? Math.round(input.reminderLeadTimeMinutes)
-      : 5;
-
-  if (leadTimeMinutes !== 5) {
-    const { error: updateError } = await supabase
-      .from("events")
-      .update({ reminder_lead_time_minutes: leadTimeMinutes })
-      .eq("id", Number(data.event_id));
-    assertNoError(updateError, "儲存提醒設定失敗。");
   }
 
   return toCreatedEvent(data);
