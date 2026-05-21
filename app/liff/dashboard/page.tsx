@@ -1114,7 +1114,7 @@ export default function DashboardLiffPage() {
             boxShadow: "0 4px 12px rgba(0, 194, 255, 0.15)",
           }}
         >
-          🔍 會議記錄查詢
+          會議記錄查詢
         </a>
       </div>
     </main>
