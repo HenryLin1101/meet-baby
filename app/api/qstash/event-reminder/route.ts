@@ -63,6 +63,7 @@ async function handleReminderRequest(request: Request) {
           note: reminder.description,
           meetingUrl: reminder.meetingUrl,
           attendees: reminder.attendees,
+          leadTimeMinutes: reminder.reminderLeadTimeMinutes,
         }),
       ],
     });
