@@ -121,6 +121,7 @@ async function handleSummaryJob(request: Request) {
         summaryJson: summary,
         summaryText,
         transcriptText: exported.text,
+        completedAt: new Date().toISOString(),
       });
     } catch (indexErr) {
       console.error("[qstash.summary.index]", indexErr);

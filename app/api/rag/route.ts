@@ -37,7 +37,13 @@ async function askWithContext(question: string, chunks: MatchedChunk[]): Promise
   const model = getChatModel();
 
   const context = chunks
-    .map((c, idx) => `[來源 ${idx + 1}]\n${c.content}`)
+    .map((c, idx) => {
+      const date = c.metadata?.completedAt
+        ? `會議日期：${new Date(c.metadata.completedAt as string).toLocaleDateString("zh-TW")}`
+        : null;
+      const header = [date, `類型：${c.chunk_type}`].filter(Boolean).join("，");
+      return `[來源 ${idx + 1}]（${header}）\n${c.content}`;
+    })
     .join("\n\n---\n\n");
 
   const res = await fetch(
@@ -53,6 +59,7 @@ async function askWithContext(question: string, chunks: MatchedChunk[]): Promise
                 "你是米特寶寶，一個幫助群組成員查詢歷史會議記錄的助手。",
                 "請根據下方提供的會議資料回答問題，使用繁體中文，回答要簡潔、準確。",
                 "若提供的資料不足以回答，請誠實說明，不要捏造內容。",
+                "回答時請使用純文字，不要使用 markdown 語法（不要用 #、*、**、- 等符號）。",
               ].join("\n"),
             },
           ],

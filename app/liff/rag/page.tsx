@@ -137,6 +137,7 @@ export default function RagLiffPage() {
             <select
               value={selectedGroupId}
               onChange={(e) => {
+                if (messages.length > 0 && !window.confirm("切換群組後，目前的對話記錄將會清空，確定要切換嗎？")) return;
                 setSelectedGroupId(e.target.value);
                 setMessages([]);
               }}

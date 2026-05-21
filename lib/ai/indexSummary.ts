@@ -28,10 +28,11 @@ export async function indexSummary(input: {
   summaryJson: MeetingSummary;
   summaryText: string;
   transcriptText?: string | null;
+  completedAt?: string | null;
 }): Promise<void> {
-  const { summaryId, groupId, meetingTitle, summaryJson, summaryText, transcriptText } = input;
+  const { summaryId, groupId, meetingTitle, summaryJson, summaryText, transcriptText, completedAt } = input;
 
-  const baseMetadata = { summaryId, meetingTitle };
+  const baseMetadata = { summaryId, meetingTitle, completedAt: completedAt ?? null };
 
 
   const rawChunks: { content: string; chunk_type: string; metadata: Record<string, unknown> }[] = [];
