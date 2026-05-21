@@ -146,6 +146,10 @@ export default function DashboardLiffPage() {
 
   /** 避免每次 refetch 都把選取日期覆寫成 API 陣列第一筆（例如固定跳回 4/21） */
   const didApplyInitialSelection = useRef(false);
+  /** 首次載入才顯示整頁的 MascotLoadingScreen；切月份時在背景 refetch，不卸載整個 dashboard */
+  const isInitialLoad = useRef(true);
+  /** 已抓取的時間區間；切月份若仍在區間內就跳過 API 呼叫，沿用已有的 meetings/groups */
+  const loadedRange = useRef<{ start: Date; end: Date } | null>(null);
 
   useEffect(() => {
     if (!LIFF_ID) return;
@@ -162,7 +166,33 @@ export default function DashboardLiffPage() {
         setLineAccessToken(accessToken);
         if (cancelled) return;
 
-        setStatus("loadingEvents");
+        // Cache hit：currentMonth 仍在已抓取區間內，沿用 meetings/groups，只更新選取日。
+        if (
+          !isInitialLoad.current &&
+          loadedRange.current &&
+          monthInLoadedRange(currentMonth, loadedRange.current)
+        ) {
+          setSelectedDateKey((prev) => {
+            const d = parseDateKey(prev);
+            const cm = currentMonth;
+            if (d.getFullYear() === cm.getFullYear() && d.getMonth() === cm.getMonth()) {
+              return prev;
+            }
+            const now = new Date();
+            if (
+              now.getFullYear() === cm.getFullYear() &&
+              now.getMonth() === cm.getMonth()
+            ) {
+              return formatDateKey(now);
+            }
+            return formatDateKey(new Date(cm.getFullYear(), cm.getMonth(), 1));
+          });
+          return;
+        }
+
+        if (isInitialLoad.current) {
+          setStatus("loadingEvents");
+        }
 
         const range = buildDashboardRange(currentMonth);
         const response = await fetch(
@@ -209,28 +239,15 @@ export default function DashboardLiffPage() {
 
         if (!didApplyInitialSelection.current) {
           didApplyInitialSelection.current = true;
-          if (nextMeetings.length > 0) {
-            const sorted = [...nextMeetings].sort((a, b) =>
-              a.startsAtIso.localeCompare(b.startsAtIso)
-            );
-            const first = sorted[0];
-            setSelectedDateKey(first.date);
-            const m = startOfMonth(parseDateKey(first.date));
-            setCurrentMonth((prev) =>
-              prev.getFullYear() === m.getFullYear() && prev.getMonth() === m.getMonth()
-                ? prev
-                : m
-            );
-          } else {
-            const today = new Date();
-            setSelectedDateKey(formatDateKey(today));
-            const m = startOfMonth(today);
-            setCurrentMonth((prev) =>
-              prev.getFullYear() === m.getFullYear() && prev.getMonth() === m.getMonth()
-                ? prev
-                : m
-            );
-          }
+          // 預設選取今天；行事曆預設也停在本月（初始 state 已經是這樣，這裡僅確保一致）
+          const today = new Date();
+          setSelectedDateKey(formatDateKey(today));
+          const m = startOfMonth(today);
+          setCurrentMonth((prev) =>
+            prev.getFullYear() === m.getFullYear() && prev.getMonth() === m.getMonth()
+              ? prev
+              : m
+          );
         } else {
           setSelectedDateKey((prev) => {
             const d = parseDateKey(prev);
@@ -249,7 +266,9 @@ export default function DashboardLiffPage() {
           });
         }
 
+        loadedRange.current = { start: range.start, end: range.end };
         setStatus("ready");
+        isInitialLoad.current = false;
       } catch (err) {
         if (cancelled) return;
         setStatus("error");
@@ -1238,12 +1257,21 @@ function mapEventToMeetingItem(
   };
 }
 
+/** ±5 個月的視窗（總長 ~335 天，安全落在後端 366 天上限內），配合 loadedRange 讓相鄰月份切換能命中快取、不打 API。 */
 function buildDashboardRange(month: Date) {
-  const start = new Date(month.getFullYear(), month.getMonth(), 1);
-  start.setDate(start.getDate() - 10);
-  const end = new Date(month.getFullYear(), month.getMonth() + 1, 1);
-  end.setDate(end.getDate() + 45);
-  return { rangeStart: start.toISOString(), rangeEnd: end.toISOString() };
+  const start = new Date(month.getFullYear(), month.getMonth() - 5, 1);
+  const end = new Date(month.getFullYear(), month.getMonth() + 6, 1);
+  return { start, end, rangeStart: start.toISOString(), rangeEnd: end.toISOString() };
+}
+
+/** currentMonth 與其前後一個月都須完整落在已抓取區間內，才算 cache 命中（給「即將到來」一些緩衝）。 */
+function monthInLoadedRange(
+  month: Date,
+  range: { start: Date; end: Date }
+): boolean {
+  const safeStart = new Date(month.getFullYear(), month.getMonth() - 1, 1);
+  const safeEnd = new Date(month.getFullYear(), month.getMonth() + 2, 1);
+  return range.start.getTime() <= safeStart.getTime() && range.end.getTime() >= safeEnd.getTime();
 }
 
 const GROUP_COLORS = [
