@@ -11,6 +11,8 @@ type EventMentionMessageInput = {
   timezone?: string;
   location?: string | null;
   note?: string | null;
+  meetingUrl?: string | null;
+  driveFolderUrl?: string | null;
   attendees: MentionTarget[];
   prefixLine?: string;
 };
@@ -48,8 +50,14 @@ export function buildEventMentionMessage(input: EventMentionMessageInput) {
     lines.push(`參與者：${attendeePlaceholders.join("、")}`);
   }
 
+  const meetingUrl = input.meetingUrl?.trim();
+  if (meetingUrl) lines.push(`Meet：${meetingUrl}`);
+
   const note = input.note?.trim();
   if (note) lines.push(`備註：${note}`);
+
+  const driveFolderUrl = input.driveFolderUrl?.trim();
+  if (driveFolderUrl) lines.push(`📁 會議資料夾：\n${driveFolderUrl}`);
 
   return {
     type: "textV2" as const,

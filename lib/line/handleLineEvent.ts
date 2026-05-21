@@ -1,9 +1,14 @@
 import { messagingApi, webhook } from "@line/bot-sdk";
 import {
   ensureChatGroup,
+  upsertGroupDriveFolderId,
   upsertGroupMembership,
   upsertLineUser,
 } from "@/lib/db/repository";
+import {
+  createDriveFolder,
+  setDriveFolderPermission,
+} from "@/lib/google/driveAdmin";
 import { getCommandByName, normalizeText, routeCommand } from "@/lib/line/commandRouter";
 import {
   clearConversationState,
@@ -69,6 +74,93 @@ function getLineUserIdFromSource(source?: webhook.Source): string | undefined {
 }
 
 function buildFallbackFlexMessage(lineGroupId?: string): messagingApi.FlexMessage {
+  function menuItem(opts: {
+    iconPath: string;
+    label: string;
+    action: messagingApi.Action;
+  }): messagingApi.FlexBox {
+    return {
+      type: "box",
+      layout: "vertical",
+      cornerRadius: "12px",
+      alignItems: "center",
+      flex: 1,
+      contents: [
+        {
+          type: "image",
+          url: opts.iconPath,
+          size: "50px",
+          aspectMode: "fit",
+          aspectRatio: "1:1",
+        },
+        {
+          type: "text",
+          text: opts.label,
+          size: "md",
+          weight: "bold",
+          color: LIFF_UI_THEME.accent,
+          margin: "8px",
+          align: "center",
+          wrap: true,
+        },
+      ],
+      action: opts.action,
+    };
+  }
+
+  const row1: messagingApi.FlexBox = {
+    type: "box",
+    layout: "horizontal",
+    spacing: "10px",
+    contents: [
+      menuItem({
+        iconPath: `${WINDOW_LOCATION_ORIGIN}/icons/calendar_add_liff.png?v=3`,
+        label: "預約會議",
+        action: {
+          type: "uri",
+          label: "預約會議",
+          uri: buildLiffUrl("/liff/meeting", { groupId: lineGroupId }) ?? "",
+        },
+      }),
+      menuItem({
+        iconPath: `${WINDOW_LOCATION_ORIGIN}/icons/dashboard_liff.png?v=3`,
+        label: "儀表板",
+        action: {
+          type: "uri",
+          label: "儀表板",
+          uri: buildLiffUrl("/liff/dashboard", { groupId: lineGroupId }) ?? "",
+        },
+      }),
+    ],
+  };
+
+  const row2: messagingApi.FlexBox = {
+    type: "box",
+    layout: "horizontal",
+    spacing: "10px",
+    margin: "10px",
+    contents: [
+      menuItem({
+        iconPath: `${WINDOW_LOCATION_ORIGIN}/icons/event_upcoming_liff.png?v=3`,
+        label: "即將到來",
+        action: {
+          type: "message",
+          label: "即將到來",
+          text: "米特寶寶 即將到來",
+        },
+      }),
+      menuItem({
+        iconPath: `${WINDOW_LOCATION_ORIGIN}/icons/drive_folder_liff.png?v=3`,
+        label: "檔案管理",
+        action: {
+          type: "uri",
+          label: "檔案管理",
+          uri: buildLiffUrl("/liff/drive", { groupId: lineGroupId }) ?? "",
+        },
+      }),
+    ],
+  };
+
   return {
     type: "flex",
     altText: "顯示選單",
@@ -77,107 +169,11 @@ function buildFallbackFlexMessage(lineGroupId?: string): messagingApi.FlexMessag
       size: "mega",
       body: {
         type: "box",
-        layout: "horizontal",
-        spacing: "10px",
+        layout: "vertical",
         backgroundColor: LIFF_UI_THEME.pageBg,
         paddingAll: "15px",
-        alignItems: "center",
         cornerRadius: "15px",
-        contents: [
-          {
-            type: "box",
-            layout: "vertical",
-            cornerRadius: "12px",
-            alignItems: "center",
-            flex: 1,
-            contents: [
-              {
-                type: "image",
-                url: `${WINDOW_LOCATION_ORIGIN}/icons/calendar_add_liff.png?v=3`,
-                size: "50px",
-                aspectMode: "fit",
-                aspectRatio: "1:1",
-              },
-              {
-                type: "text",
-                text: "預約會議",
-                size: "md",
-                weight: "bold",
-                color: LIFF_UI_THEME.accent,
-                margin: "8px",
-                align: "center",
-                wrap: true,
-              },
-            ],
-            action: {
-              type: "uri",
-              label: "action",
-              uri: buildLiffUrl("/liff/meeting", { groupId: lineGroupId }) ?? "",
-            },
-          },
-          {
-            type: "box",
-            layout: "vertical",
-            cornerRadius: "12px",
-            alignItems: "center",
-            flex: 1,
-            contents: [
-              {
-                type: "image",
-                url: `${WINDOW_LOCATION_ORIGIN}/icons/dashboard_liff.png?v=3`,
-                size: "50px",
-                aspectMode: "fit",
-                aspectRatio: "1:1",
-              },
-              {
-                type: "text",
-                text: "儀表板",
-                size: "md",
-                weight: "bold",
-                color: LIFF_UI_THEME.accent,
-                margin: "8px",
-                align: "center",
-                wrap: true,
-              },
-            ],
-            action: {
-              type: "uri",
-              label: "action",
-              uri: buildLiffUrl("/liff/dashboard", { groupId: lineGroupId }) ?? "",
-            },
-          },
-          {
-            type: "box",
-            layout: "vertical",
-            cornerRadius: "12px",
-            alignItems: "center",
-            flex: 1,
-            contents: [
-              {
-                type: "image",
-                url: `${WINDOW_LOCATION_ORIGIN}/icons/event_upcoming_liff.png?v=3`,
-                size: "50px",
-                aspectMode: "fit",
-                aspectRatio: "1:1",
-              },
-              {
-                type: "text",
-                text: "即將到來",
-                size: "md",
-                weight: "bold",
-                color: LIFF_UI_THEME.accent,
-                margin: "8px",
-                align: "center",
-                wrap: true,
-              },
-            ],
-            action: {
-              type: "message",
-              label: "action",
-              text: "米特寶寶 即將到來",
-            },
-          },
-        ],
+        contents: [row1, row2],
       },
     },
   };
@@ -349,8 +345,8 @@ function isGroupMessageEvent(event: LineMessageEvent): event is GroupMessageEven
 async function syncGroupFromJoin(
   client: messagingApi.MessagingApiClient,
   event: Extract<LineEvent, { type: "join" }>
-): Promise<void> {
-  if (!isGroupJoinEvent(event)) return;
+): Promise<string | null> {
+  if (!isGroupJoinEvent(event)) return null;
 
   const groupSummary = await getGroupName(client, event.source.groupId);
   await ensureChatGroup(
@@ -358,6 +354,18 @@ async function syncGroupFromJoin(
     groupSummary.name,
     groupSummary.pictureUrl
   );
+
+  try {
+    const folder = await createDriveFolder({
+      name: groupSummary.name ?? "LINE 群組",
+    });
+    await setDriveFolderPermission({ folderId: folder.id, role: "writer" });
+    await upsertGroupDriveFolderId(event.source.groupId, folder.id);
+    return folder.webViewLink;
+  } catch (error) {
+    console.error("[drive.createGroupFolder]", error);
+    return null;
+  }
 }
 
 async function syncAddressedLineUser(
@@ -492,14 +500,23 @@ const eventHandlers: Partial<Record<LineEvent["type"], LineEventHandler>> = {
   },
   join: async (client, event) => {
     if (event.type !== "join") return;
+    let driveFolderLink: string | null = null;
     try {
-      await syncGroupFromJoin(client, event);
+      driveFolderLink = await syncGroupFromJoin(client, event);
     } catch (error) {
       console.error("[LINE join sync]", error);
     }
+    const messages: messagingApi.Message[] = [
+      textMessage(WELCOME_ON_JOIN),
+    ];
+    if (driveFolderLink) {
+      messages.push(
+        textMessage(`📁 已為本群組建立 Google Drive 資料夾：\n${driveFolderLink}`)
+      );
+    }
     await client.replyMessage({
       replyToken: event.replyToken,
-      messages: [textMessage(WELCOME_ON_JOIN)],
+      messages,
     });
   },
   message: async (client, event) => {

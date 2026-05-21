@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS chat_groups (
 ALTER TABLE chat_groups
   ADD COLUMN IF NOT EXISTS picture_url TEXT;
 
+ALTER TABLE chat_groups
+  ADD COLUMN IF NOT EXISTS drive_folder_id TEXT;
+
 CREATE TABLE IF NOT EXISTS group_memberships (
   id BIGSERIAL PRIMARY KEY,
   group_id BIGINT NOT NULL REFERENCES chat_groups(id) ON DELETE CASCADE,
@@ -95,6 +98,11 @@ CREATE TABLE IF NOT EXISTS events (
   reminder_processing_at TIMESTAMPTZ,
   reminder_sent_at TIMESTAMPTZ,
   reminder_last_error TEXT,
+  auto_summary_qstash_message_id TEXT,
+  auto_summary_scheduled_at TIMESTAMPTZ,
+  auto_summary_completed_at TIMESTAMPTZ,
+  auto_summary_last_error TEXT,
+  auto_summary_attempt_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT events_time_range_check CHECK (
@@ -103,11 +111,22 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 ALTER TABLE events
+  ADD COLUMN IF NOT EXISTS auto_summary_qstash_message_id TEXT,
+  ADD COLUMN IF NOT EXISTS auto_summary_scheduled_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS auto_summary_completed_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS auto_summary_last_error TEXT,
+  ADD COLUMN IF NOT EXISTS auto_summary_attempt_count INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE events
   ADD COLUMN IF NOT EXISTS reminder_message_id TEXT,
   ADD COLUMN IF NOT EXISTS reminder_scheduled_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS reminder_processing_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS reminder_last_error TEXT;
+  ADD COLUMN IF NOT EXISTS reminder_last_error TEXT,
+  ADD COLUMN IF NOT EXISTS calendar_event_id TEXT;
+
+ALTER TABLE events
+  ADD COLUMN IF NOT EXISTS drive_folder_id TEXT;
 
 CREATE TABLE IF NOT EXISTS event_attendees (
   id BIGSERIAL PRIMARY KEY,

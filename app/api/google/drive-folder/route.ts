@@ -1,15 +1,9 @@
 import {
-  ensureChatGroup,
-  listActiveGroupMembers,
+  getGroupDriveFolderId,
   RepositoryError,
-  upsertGroupMembership,
   upsertLineUser,
 } from "@/lib/db/repository";
-import {
-  getBearerToken,
-  LineAuthError,
-  verifyLineAccessToken,
-} from "@/lib/line/auth";
+import { getBearerToken, LineAuthError, verifyLineAccessToken } from "@/lib/line/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,21 +13,19 @@ function errorResponse(message: string, status: number) {
 }
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const lineGroupId = searchParams.get("groupId")?.trim();
-
-  if (!lineGroupId) {
-    return errorResponse("缺少 groupId。", 400);
-  }
-
   const accessToken = getBearerToken(request.headers.get("authorization"));
   if (!accessToken) {
     return errorResponse("缺少 LINE access token。", 401);
   }
 
+  const { searchParams } = new URL(request.url);
+  const groupId = searchParams.get("groupId")?.trim();
+  if (!groupId) {
+    return errorResponse("缺少 groupId。", 400);
+  }
+
   try {
     const verifiedUser = await verifyLineAccessToken(accessToken);
-
     await upsertLineUser({
       lineUserId: verifiedUser.lineUserId,
       displayName: verifiedUser.displayName,
@@ -41,15 +33,14 @@ export async function GET(request: Request) {
       statusMessage: verifiedUser.statusMessage,
       email: verifiedUser.email,
     });
-    await ensureChatGroup(lineGroupId);
-    await upsertGroupMembership(lineGroupId, verifiedUser.lineUserId);
 
-    const members = await listActiveGroupMembers(lineGroupId);
+    const folderId = await getGroupDriveFolderId(groupId);
+    if (!folderId) {
+      return errorResponse("此群組尚未建立 Drive 資料夾。", 404);
+    }
 
-    return Response.json({
-      members,
-      currentLineUserId: verifiedUser.lineUserId,
-    });
+    const driveFolderUrl = `https://drive.google.com/drive/folders/${folderId}`;
+    return Response.json({ driveFolderUrl });
   } catch (error) {
     if (error instanceof LineAuthError) {
       return errorResponse(error.message, error.status);
@@ -57,8 +48,7 @@ export async function GET(request: Request) {
     if (error instanceof RepositoryError) {
       return errorResponse(error.message, error.status);
     }
-
-    console.error("[group-members]", error);
-    return errorResponse("讀取群組成員失敗。", 500);
+    console.error("[drive-folder]", error);
+    return errorResponse("讀取 Drive 資料夾失敗。", 500);
   }
 }

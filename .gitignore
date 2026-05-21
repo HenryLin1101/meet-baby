@@ -9,6 +9,7 @@ node_modules/
 # Next.js
 .next/
 out/
+*.tsbuildinfo
 
 # local scripts
 scripts/
@@ -24,3 +25,4 @@ localhost.pem
 localhost-key.pem
 .vercel
 .claude/
+.playwright-mcp/

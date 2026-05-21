@@ -6,6 +6,7 @@ type ChatGroupRow = {
   line_group_id: string;
   name: string | null;
   picture_url: string | null;
+  drive_folder_id: string | null;
 };
 
 type LineUserRow = {
@@ -38,6 +39,7 @@ export type LineUserReference = {
   userId: number;
   lineUserId: string;
   displayName: string;
+  email: string | null;
 };
 
 type GroupMemberRow = {
@@ -65,6 +67,8 @@ type CreatedEventRow = {
   ends_at: string | null;
   timezone: string;
   attendee_display_names: string[];
+  meeting_url: string | null;
+  calendar_event_id: string | null;
 };
 
 type ListedEventRow = {
@@ -108,6 +112,7 @@ type EventReminderEventRow = {
   reminder_processing_at: string | null;
   reminder_sent_at: string | null;
   reminder_last_error: string | null;
+  meeting_url: string | null;
 };
 
 type EventReminderAttendeeRow = {
@@ -136,6 +141,8 @@ export type CreatedEvent = {
   endsAt: string | null;
   timezone: string;
   attendeeDisplayNames: string[];
+  meetingUrl: string | null;
+  calendarEventId: string | null;
 };
 
 export type ListedEvent = {
@@ -182,6 +189,7 @@ export type EventReminderDetails = {
   reminderMessageId: string | null;
   reminderScheduledAt: string | null;
   reminderSentAt: string | null;
+  meetingUrl: string | null;
   attendees: LineUserReference[];
 };
 
@@ -340,6 +348,9 @@ function toCreatedEvent(row: CreatedEventRow): CreatedEvent {
     attendeeDisplayNames: Array.isArray(row.attendee_display_names)
       ? row.attendee_display_names.map(String)
       : [],
+    meetingUrl: row.meeting_url === null ? null : String(row.meeting_url),
+    calendarEventId:
+      row.calendar_event_id === null ? null : String(row.calendar_event_id),
   };
 }
 
@@ -349,7 +360,7 @@ async function getChatGroupByLineGroupId(
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .eq("line_group_id", lineGroupId)
     .maybeSingle<ChatGroupRow>();
 
@@ -442,7 +453,7 @@ export async function ensureChatGroup(
   const { data, error } = await supabase
     .from("chat_groups")
     .upsert(insertPayload, { onConflict: "line_group_id" })
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .single<ChatGroupRow>();
 
   assertNoError(error, "建立或更新群組資料失敗。");
@@ -578,6 +589,22 @@ export async function listActiveGroupMembers(
   });
 }
 
+export async function setLineUserEmailByLineUserId(
+  lineUserId: string,
+  email: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedLineUserId = requireNonEmpty(lineUserId, "lineUserId");
+  const normalizedEmail = requireNonEmpty(email, "email");
+
+  const { error } = await supabase
+    .from("line_users")
+    .update({ email: normalizedEmail })
+    .eq("line_user_id", normalizedLineUserId);
+
+  assertNoError(error, "更新 LINE 使用者 email 失敗。");
+}
+
 export async function listLineUsersByIds(
   userIds: number[]
 ): Promise<LineUserReference[]> {
@@ -590,7 +617,7 @@ export async function listLineUsersByIds(
 
   const { data, error } = await supabase
     .from("line_users")
-    .select("id, line_user_id, display_name")
+    .select("id, line_user_id, display_name, email")
     .in("id", normalizedUserIds)
     .order("display_name", { ascending: true })
     .order("id", { ascending: true });
@@ -601,6 +628,7 @@ export async function listLineUsersByIds(
     userId: Number(row.id),
     lineUserId: String(row.line_user_id),
     displayName: String(row.display_name),
+    email: row.email === null || row.email === undefined ? null : String(row.email),
   }));
 }
 
@@ -745,7 +773,7 @@ export async function listUserGroups(lineUserId: string): Promise<UserChatGroup[
 
   const { data, error } = await supabase
     .from("group_memberships")
-    .select("group_id, chat_groups(id, line_group_id, name, picture_url)")
+    .select("group_id, chat_groups(id, line_group_id, name, picture_url, drive_folder_id)")
     .eq("user_id", user.id)
     .eq("is_active", true);
 
@@ -946,7 +974,7 @@ export async function getEventReminderDetails(
   const { data: event, error: eventError } = await supabase
     .from("events")
     .select(
-      "id, group_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_scheduled_at, reminder_processing_at, reminder_sent_at, reminder_last_error"
+      "id, group_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_scheduled_at, reminder_processing_at, reminder_sent_at, reminder_last_error, meeting_url"
     )
     .eq("id", normalizedEventId)
     .maybeSingle<EventReminderEventRow>();
@@ -959,7 +987,7 @@ export async function getEventReminderDetails(
 
   const { data: group, error: groupError } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .eq("id", Number(event.group_id))
     .maybeSingle<ChatGroupRow>();
 
@@ -997,6 +1025,7 @@ export async function getEventReminderDetails(
         : new Date(event.reminder_scheduled_at).toISOString(),
     reminderSentAt:
       event.reminder_sent_at === null ? null : new Date(event.reminder_sent_at).toISOString(),
+    meetingUrl: event.meeting_url === null ? null : String(event.meeting_url),
     attendees,
   };
 }
@@ -1183,6 +1212,7 @@ export async function createEventSummary(
     requestedByLineUserId: string;
     sourceDriveUrl: string;
     sourceDriveFileId: string;
+    eventId?: number | null;
   }
 ): Promise<CreatedSummary> {
   const supabase = getSupabaseAdmin();
@@ -1211,6 +1241,11 @@ export async function createEventSummary(
     throw new RepositoryError("你不是此群組的有效成員。", 403, "FORBIDDEN");
   }
 
+  const eventId =
+    typeof input.eventId === "number" && Number.isFinite(input.eventId)
+      ? requireFiniteNumber(input.eventId, "eventId")
+      : null;
+
   const { data, error } = await supabase
     .from("event_summaries")
     .insert({
@@ -1218,6 +1253,7 @@ export async function createEventSummary(
       requested_by_user_id: user.id,
       source_drive_url: sourceDriveUrl,
       source_drive_file_id: sourceDriveFileId,
+      event_id: eventId,
       status: "pending",
       processing_at: null,
       completed_at: null,
@@ -1286,7 +1322,7 @@ export async function getEventSummaryProcessingDetails(
 
   const { data: group, error: groupError } = await supabase
     .from("chat_groups")
-    .select("id, line_group_id, name, picture_url")
+    .select("id, line_group_id, name, picture_url, drive_folder_id")
     .eq("id", Number(summary.group_id))
     .maybeSingle<ChatGroupRow>();
   assertNoError(groupError, "讀取群組資料失敗。");
@@ -1357,6 +1393,210 @@ export async function markEventSummaryFailed(input: {
     })
     .eq("id", summaryId);
   assertNoError(error, "更新會議總結失敗狀態失敗。");
+}
+
+export async function updateEventCalendarData(input: {
+  eventId: number;
+  meetingUrl: string;
+  calendarEventId: string;
+}): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const eventId = requireFiniteNumber(input.eventId, "eventId");
+  const meetingUrl = requireNonEmpty(input.meetingUrl, "meetingUrl");
+  const calendarEventId = requireNonEmpty(input.calendarEventId, "calendarEventId");
+
+  const { error } = await supabase
+    .from("events")
+    .update({ meeting_url: meetingUrl, calendar_event_id: calendarEventId })
+    .eq("id", eventId);
+  assertNoError(error, "儲存 Google 日曆資訊失敗。");
+}
+
+export function hasCalendarScope(credential: GoogleCredential): boolean {
+  const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+  const tokens = (credential.scopes ?? "")
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return tokens.includes(CALENDAR_SCOPE);
+}
+
+export type EventAutoSummaryDetails = {
+  eventId: number;
+  lineGroupId: string;
+  createdByLineUserId: string;
+  title: string;
+  startsAt: string;
+  endsAt: string | null;
+  status: string;
+  autoSummaryCompletedAt: string | null;
+};
+
+type EventAutoSummaryRow = {
+  id: number;
+  title: string;
+  starts_at: string;
+  ends_at: string | null;
+  status: string;
+  auto_summary_completed_at: string | null;
+  group_id: number;
+  created_by_user_id: number;
+};
+
+export async function getEventAutoSummaryDetails(
+  eventId: number
+): Promise<EventAutoSummaryDetails | null> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
+
+  const { data: event, error: eventError } = await supabase
+    .from("events")
+    .select(
+      "id, group_id, created_by_user_id, title, starts_at, ends_at, status, auto_summary_completed_at"
+    )
+    .eq("id", normalizedEventId)
+    .maybeSingle<EventAutoSummaryRow>();
+  assertNoError(eventError, "讀取活動資料失敗。");
+  if (!event) return null;
+
+  const { data: group, error: groupError } = await supabase
+    .from("chat_groups")
+    .select("line_group_id")
+    .eq("id", Number(event.group_id))
+    .maybeSingle<{ line_group_id: string }>();
+  assertNoError(groupError, "讀取群組資料失敗。");
+  if (!group) return null;
+
+  const { data: user, error: userError } = await supabase
+    .from("line_users")
+    .select("line_user_id")
+    .eq("id", Number(event.created_by_user_id))
+    .maybeSingle<{ line_user_id: string }>();
+  assertNoError(userError, "讀取 LINE 使用者資料失敗。");
+  if (!user) return null;
+
+  return {
+    eventId: Number(event.id),
+    lineGroupId: String(group.line_group_id),
+    createdByLineUserId: String(user.line_user_id),
+    title: String(event.title),
+    startsAt: new Date(event.starts_at).toISOString(),
+    endsAt:
+      event.ends_at === null ? null : new Date(event.ends_at).toISOString(),
+    status: String(event.status),
+    autoSummaryCompletedAt:
+      event.auto_summary_completed_at === null
+        ? null
+        : new Date(event.auto_summary_completed_at).toISOString(),
+  };
+}
+
+export async function setEventAutoSummarySchedule(input: {
+  eventId: number;
+  messageId: string;
+  scheduledAt: string;
+}): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const eventId = requireFiniteNumber(input.eventId, "eventId");
+  const messageId = requireNonEmpty(input.messageId, "messageId");
+  const scheduledAt = parseEventDate(input.scheduledAt, "scheduledAt");
+
+  const { error } = await supabase
+    .from("events")
+    .update({
+      auto_summary_qstash_message_id: messageId,
+      auto_summary_scheduled_at: scheduledAt.toISOString(),
+      auto_summary_last_error: null,
+    })
+    .eq("id", eventId);
+  assertNoError(error, "儲存自動摘要排程失敗。");
+}
+
+export async function incrementEventAutoSummaryAttempt(
+  eventId: number
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
+
+  const { data, error: readError } = await supabase
+    .from("events")
+    .select("auto_summary_attempt_count")
+    .eq("id", normalizedEventId)
+    .maybeSingle<{ auto_summary_attempt_count: number | null }>();
+  assertNoError(readError, "讀取自動摘要重試次數失敗。");
+
+  const current = Number(data?.auto_summary_attempt_count ?? 0);
+  const { error } = await supabase
+    .from("events")
+    .update({ auto_summary_attempt_count: current + 1 })
+    .eq("id", normalizedEventId);
+  assertNoError(error, "更新自動摘要重試次數失敗。");
+}
+
+export async function markEventAutoSummaryCompleted(
+  eventId: number
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
+
+  const { error } = await supabase
+    .from("events")
+    .update({
+      auto_summary_completed_at: new Date().toISOString(),
+      auto_summary_last_error: null,
+    })
+    .eq("id", normalizedEventId);
+  assertNoError(error, "標記自動摘要完成失敗。");
+}
+
+export async function markEventAutoSummaryFailed(
+  eventId: number,
+  message: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
+
+  const { error } = await supabase
+    .from("events")
+    .update({
+      auto_summary_last_error: normalizeOptionalText(message),
+    })
+    .eq("id", normalizedEventId);
+  assertNoError(error, "標記自動摘要失敗狀態失敗。");
+}
+
+export async function hasActiveSummaryForEvent(eventId: number): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
+
+  const { data, error } = await supabase
+    .from("event_summaries")
+    .select("id")
+    .eq("event_id", normalizedEventId)
+    .in("status", ["pending", "processing", "completed"])
+    .limit(1);
+  assertNoError(error, "查詢活動摘要狀態失敗。");
+  return (data ?? []).length > 0;
+}
+
+export async function getProcessedDriveFileIds(): Promise<Set<string>> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("event_summaries")
+    .select("source_drive_file_id")
+    .in("status", ["pending", "processing", "completed"]);
+  assertNoError(error, "讀取已處理逐字稿檔案失敗。");
+
+  return new Set(
+    (data ?? [])
+      .map((row) =>
+        typeof (row as { source_drive_file_id?: unknown }).source_drive_file_id ===
+        "string"
+          ? String((row as { source_drive_file_id: string }).source_drive_file_id)
+          : null
+      )
+      .filter((id): id is string => Boolean(id))
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1712,4 +1952,52 @@ export async function deleteTodoItem(input: {
     .maybeSingle<{ id: number }>();
   assertNoError(deleteErr, "刪除待辦事項失敗。");
   return Boolean(data);
+}
+
+// ---------------------------------------------------------------------------
+// Drive Folders
+// ---------------------------------------------------------------------------
+
+export async function upsertGroupDriveFolderId(
+  lineGroupId: string,
+  driveFolderId: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const trimmedGroupId = requireNonEmpty(lineGroupId, "lineGroupId");
+  const trimmedFolderId = requireNonEmpty(driveFolderId, "driveFolderId");
+  const { error } = await supabase
+    .from("chat_groups")
+    .upsert(
+      { line_group_id: trimmedGroupId, drive_folder_id: trimmedFolderId },
+      { onConflict: "line_group_id" }
+    );
+  assertNoError(error, "更新群組 Drive 資料夾 ID 失敗。");
+}
+
+export async function getGroupDriveFolderId(
+  lineGroupId: string
+): Promise<string | null> {
+  const supabase = getSupabaseAdmin();
+  const trimmedGroupId = requireNonEmpty(lineGroupId, "lineGroupId");
+  const { data, error } = await supabase
+    .from("chat_groups")
+    .select("drive_folder_id")
+    .eq("line_group_id", trimmedGroupId)
+    .maybeSingle<{ drive_folder_id: string | null }>();
+  assertNoError(error, "讀取群組 Drive 資料夾 ID 失敗。");
+  return data?.drive_folder_id ?? null;
+}
+
+export async function setEventDriveFolderId(
+  eventId: number,
+  driveFolderId: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
+  const trimmedFolderId = requireNonEmpty(driveFolderId, "driveFolderId");
+  const { error } = await supabase
+    .from("events")
+    .update({ drive_folder_id: trimmedFolderId })
+    .eq("id", normalizedEventId);
+  assertNoError(error, "更新活動 Drive 資料夾 ID 失敗。");
 }

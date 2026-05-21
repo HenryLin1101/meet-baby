@@ -1,6 +1,7 @@
 import { HelpCommand } from "@/lib/line/commands/helpCommand";
 import { LiffCommand } from "@/lib/line/commands/liffCommand";
 import { MeetingCommand } from "@/lib/line/commands/meetingCommand";
+import { ScanTranscriptCommand } from "@/lib/line/commands/scanTranscriptCommand";
 import { SummaryCommand } from "@/lib/line/commands/summaryCommand";
 import { UpcomingCommand } from "@/lib/line/commands/upcomingCommand";
 import type { CommandContext } from "@/lib/modules/types";
@@ -12,6 +13,7 @@ const EXPLICIT_PREFIXES = ["/", "!"] as const;
 const registeredCommands: CommandHandlerBase[] = [
   new HelpCommand(),
   new SummaryCommand(),
+  new ScanTranscriptCommand(),
   new MeetingCommand(),
   new UpcomingCommand(),
   new LiffCommand(),

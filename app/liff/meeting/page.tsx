@@ -4,23 +4,26 @@ import liff from "@line/liff";
 import {
   useEffect,
   useState,
-  type CSSProperties,
   type FormEvent,
   type ReactNode,
 } from "react";
 import { initLiffOrThrow } from "@/lib/liff/client";
 import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
 import MascotLoadingScreen from "@/lib/liff/MascotLoadingScreen";
-import { LIFF_UI_THEME as THEME } from "@/lib/liff/liffUiTheme";
 import MemberMultiSelect from "@/lib/tools/MemberMultiSelect";
+import styles from "./page.module.css";
 
 type Status =
   | "loading"
+  | "checkingCalendar"
+  | "calendarDisconnected"
   | "loadingMembers"
   | "ready"
   | "submitting"
   | "done"
   | "error";
+
+type MeetingType = "inPerson" | "online" | "hybrid";
 
 type GroupMember = {
   userId: number;
@@ -34,7 +37,6 @@ export default function MeetingLiffPage() {
   const [errorMsg, setErrorMsg] = useState<string>(
     LIFF_ID ? "" : MISSING_LIFF_ENV_MSG
   );
-  const { isCompact } = useResponsiveFlags();
 
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -45,6 +47,59 @@ export default function MeetingLiffPage() {
   const [accessToken, setAccessToken] = useState("");
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>([]);
+  const [consentPageUrl, setConsentPageUrl] = useState("");
+  const [createdMeetingUrl, setCreatedMeetingUrl] = useState<string | null>(null);
+  const [meetingType, setMeetingType] = useState<MeetingType>("online");
+  const [hasCalendarScope, setHasCalendarScope] = useState(false);
+  const [consentModalVisible, setConsentModalVisible] = useState(false);
+
+  async function loadGroupMembers(
+    nextGroupId: string,
+    nextAccessToken: string,
+    currentLineUserId: string | null
+  ): Promise<void> {
+    setStatus("loadingMembers");
+
+    const response = await fetch(
+      `/api/group-members?groupId=${encodeURIComponent(nextGroupId)}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${nextAccessToken}` },
+        cache: "no-store",
+      }
+    );
+
+    const payload = (await response.json()) as {
+      error?: string;
+      currentLineUserId?: string;
+      members?: GroupMember[];
+    };
+
+    if (!response.ok) {
+      throw new Error(payload.error ?? "讀取群組成員失敗");
+    }
+
+    const nextMembers = payload.members ?? [];
+    const fallbackCurrentUserId = payload.currentLineUserId ?? currentLineUserId;
+    const defaultSelected = nextMembers
+      .filter((member) => member.lineUserId === fallbackCurrentUserId)
+      .map((member) => String(member.userId));
+
+    setMembers(nextMembers);
+    setSelectedAttendeeIds(defaultSelected);
+    setStatus("ready");
+  }
+
+  async function handleSkipCalendarConsent() {
+    try {
+      const currentLineUserId =
+        liff.getDecodedIDToken()?.sub?.trim() ?? null;
+      await loadGroupMembers(groupId, accessToken, currentLineUserId);
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : "讀取群組成員失敗");
+    }
+  }
 
   useEffect(() => {
     if (!LIFF_ID) return;
@@ -69,40 +124,33 @@ export default function MeetingLiffPage() {
 
         setGroupId(nextGroupId);
         setAccessToken(nextAccessToken);
-        setStatus("loadingMembers");
+        setStatus("checkingCalendar");
 
-        const response = await fetch(
-          `/api/group-members?groupId=${encodeURIComponent(nextGroupId)}`,
+        // Check if the meeting creator has Google Calendar scope.
+        const scopeResponse = await fetch(
+          `/api/google/calendar-scope?groupId=${encodeURIComponent(nextGroupId)}`,
           {
             method: "GET",
-            headers: {
-              Authorization: `Bearer ${nextAccessToken}`,
-            },
+            headers: { Authorization: `Bearer ${nextAccessToken}` },
             cache: "no-store",
           }
         );
-
-        const payload = (await response.json()) as {
-          error?: string;
-          currentLineUserId?: string;
-          members?: GroupMember[];
+        const scopePayload = (await scopeResponse.json()) as {
+          hasCalendarScope?: boolean;
+          consentPageUrl?: string;
         };
-
-        if (!response.ok) {
-          throw new Error(payload.error ?? "讀取群組成員失敗");
-        }
-
-        const nextMembers = payload.members ?? [];
-        const fallbackCurrentUserId = payload.currentLineUserId ?? currentLineUserId;
-        const defaultSelected = nextMembers
-          .filter((member) => member.lineUserId === fallbackCurrentUserId)
-          .map((member) => String(member.userId));
-
         if (cancelled) return;
 
-        setMembers(nextMembers);
-        setSelectedAttendeeIds(defaultSelected);
-        setStatus("ready");
+        setHasCalendarScope(Boolean(scopePayload.hasCalendarScope));
+        setConsentPageUrl(scopePayload.consentPageUrl ?? "");
+
+        if (!scopePayload.hasCalendarScope) {
+          setStatus("calendarDisconnected");
+          return;
+        }
+
+        if (cancelled) return;
+        await loadGroupMembers(nextGroupId, nextAccessToken, currentLineUserId);
       } catch (err) {
         if (cancelled) return;
         setStatus("error");
@@ -123,6 +171,17 @@ export default function MeetingLiffPage() {
       return;
     }
 
+    const wantsMeetingLink = meetingType !== "inPerson";
+    if (wantsMeetingLink && !hasCalendarScope) {
+      setConsentModalVisible(true);
+      return;
+    }
+
+    await submitEvent(wantsMeetingLink);
+  }
+
+  async function submitEvent(wantsMeetingLink: boolean) {
+    setConsentModalVisible(false);
     setStatus("submitting");
 
     try {
@@ -140,11 +199,13 @@ export default function MeetingLiffPage() {
           location,
           note,
           attendeeUserIds: selectedAttendeeIds.map(Number),
+          wantsMeetingLink,
         }),
       });
 
       const payload = (await response.json()) as {
         error?: string;
+        meetingUrl?: string | null;
         notificationSent?: boolean;
       };
 
@@ -152,6 +213,7 @@ export default function MeetingLiffPage() {
         throw new Error(payload.error ?? "建立活動失敗");
       }
 
+      setCreatedMeetingUrl(payload.meetingUrl ?? null);
       setStatus("done");
 
       if (payload.notificationSent === false) {
@@ -170,42 +232,66 @@ export default function MeetingLiffPage() {
   const disabled = status !== "ready";
 
   const showBlockingLoader =
-    Boolean(LIFF_ID) && (status === "loading" || status === "loadingMembers");
+    Boolean(LIFF_ID) &&
+    (status === "loading" ||
+      status === "checkingCalendar" ||
+      status === "loadingMembers");
+
+  if (status === "calendarDisconnected") {
+    return (
+      <main className={`${styles.main} ${styles.consentScreen}`}>
+        <div className={`${styles.pageInner} ${styles.consentInner}`}>
+          <h1 className={`${styles.pageTitle} ${styles.consentTitle}`}>
+            連結 Google 日曆
+          </h1>
+          <p className={`${styles.pageSubtitle} ${styles.consentBody}`}>
+            米特寶寶需要 Google 日曆權限才能產生 Meet 連結。
+            請點下方按鈕在外部瀏覽器完成授權（LINE 內建瀏覽器會被 Google 擋）。
+          </p>
+          {consentPageUrl ? (
+            <a
+              href={consentPageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.calendarConnectButton}
+            >
+              連結 Google 日曆
+            </a>
+          ) : (
+            <p className={styles.modalConsentFallback}>
+              無法產生授權連結，請關閉後重新開啟。
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={handleSkipCalendarConsent}
+            className={styles.calendarSkipButton}
+          >
+            稍後再說（不產生 Meet 連結）
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <>
       {showBlockingLoader && <MascotLoadingScreen />}
       {!showBlockingLoader && (
-    <main
-      style={{
-        ...mainStyle,
-        width: "100%",
-        maxWidth: "100vw",
-        overflowX: "hidden",
-        boxSizing: "border-box",
-        padding: isCompact ? "0.75rem 0.65rem calc(1rem + env(safe-area-inset-bottom, 0px))" : "1.25rem 1rem calc(1.5rem + env(safe-area-inset-bottom, 0px))",
-      }}
-    >
-      <div style={pageInnerStyle}>
-        <h1
-          style={{
-            ...pageTitleStyle,
-            fontSize: isCompact ? "2.1rem" : "2.5rem",
-          }}
-        >
-          預約會議
-        </h1>
-        <p style={pageSubtitleStyle}>
+    <main className={styles.main}>
+      <div className={styles.pageInner}>
+        <h1 className={styles.pageTitle}>預約會議</h1>
+        <p className={styles.pageSubtitle}>
           填寫資料送出後，會建立活動並通知群組。
         </p>
 
-        {status === "error" && <div style={errorBoxStyle}>{errorMsg}</div>}
+        {status === "error" && <div className={styles.errorBox}>{errorMsg}</div>}
 
-        <div style={formPanelStyle}>
-          <form onSubmit={handleSubmit} style={formStyle}>
+        <div className={styles.formPanel}>
+          <form onSubmit={handleSubmit} className={styles.form}>
             <Field label="會議主題" required>
               <input
-                style={inputStyle}
+                className={styles.input}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="例如：專案同步會議"
@@ -216,11 +302,11 @@ export default function MeetingLiffPage() {
             </Field>
 
             {/* 日期/時間直向堆疊；外層限制寬度避免原生 date/time 撐破白卡 */}
-            <div style={dateTimeRowWrapStyle}>
-              <Row isCompact>
+            <div className={styles.dateTimeRowWrap}>
+              <Row>
                 <Field label="日期" required>
                   <input
-                    style={dateTimeInputStyle}
+                    className={styles.dateTimeInput}
                     type="date"
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
@@ -230,7 +316,7 @@ export default function MeetingLiffPage() {
                 </Field>
                 <Field label="時間" required>
                   <input
-                    style={dateTimeInputStyle}
+                    className={styles.dateTimeInput}
                     type="time"
                     value={time}
                     onChange={(e) => setTime(e.target.value)}
@@ -241,19 +327,55 @@ export default function MeetingLiffPage() {
               </Row>
             </div>
 
-            <Field label="地點">
-              <input
-                style={inputStyle}
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="選填，例如：會議室 A、線上連結"
-                disabled={disabled}
-              />
+            <Field label="會議形式" required>
+              <div className={styles.meetingTypeGroup} role="radiogroup">
+                {(
+                  [
+                    { value: "inPerson", label: "實體" },
+                    { value: "online", label: "線上" },
+                    { value: "hybrid", label: "混合" },
+                  ] as Array<{ value: MeetingType; emoji: string; label: string }>
+                ).map((opt) => {
+                  const active = meetingType === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => setMeetingType(opt.value)}
+                      disabled={disabled}
+                      className={`${styles.meetingTypeOption} ${active ? styles.meetingTypeOptionActive : ""}`}
+                    >
+                      <span className={styles.meetingTypeOptionEmoji}>{opt.emoji}</span>
+                      <span>{opt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {meetingType !== "inPerson" && (
+                <p className={styles.meetingTypeHint}>
+                  系統會自動產生 Google Meet 連結並一併通知群組。
+                </p>
+              )}
             </Field>
+
+            {meetingType !== "online" && (
+              <Field label="地點">
+                <input
+                  className={styles.input}
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="例如：會議室 A"
+                  disabled={disabled}
+                />
+              </Field>
+            )}
 
             <Field label="備註">
               <textarea
-                style={{ ...inputStyle, minHeight: "5.5rem", resize: "vertical" }}
+                className={styles.input}
+                style={{ minHeight: "5.5rem", resize: "vertical" }}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="選填"
@@ -267,31 +389,93 @@ export default function MeetingLiffPage() {
                 selectedIds={selectedAttendeeIds}
                 onChange={setSelectedAttendeeIds}
                 disabled={disabled || members.length === 0}
-                compact={isCompact}
               />
             </Field>
 
             <button
               type="submit"
-              style={{
-                ...submitButtonStyle,
-                opacity: disabled ? 0.55 : 1,
-                cursor: disabled ? "not-allowed" : "pointer",
-              }}
+              className={styles.submitButton}
               disabled={disabled}
             >
               {status === "submitting"
                 ? "送出中…"
                 : status === "done"
                   ? "已送出"
-                  : status === "loading" || status === "loadingMembers"
+                  : status === "loading" ||
+                      status === "checkingCalendar" ||
+                      status === "loadingMembers"
                     ? "載入中…"
                     : "送出預約"}
             </button>
+
+            {status === "done" && createdMeetingUrl && (
+              <div className={styles.meetingUrlBox}>
+                <span className={styles.meetingUrlBoxLabel}>
+                  Google Meet 連結
+                </span>
+                <a
+                  href={createdMeetingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.meetingUrlBoxLink}
+                >
+                  {createdMeetingUrl}
+                </a>
+              </div>
+            )}
           </form>
         </div>
       </div>
     </main>
+      )}
+      {consentModalVisible && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className={styles.modalOverlay}
+          onClick={() => setConsentModalVisible(false)}
+        >
+          <div
+            className={styles.modalCard}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className={styles.modalTitle}>連結 Google 日曆</h2>
+            <p className={styles.modalBody}>
+              需要 Google 日曆權限才能產生 Meet 連結。
+              請在外部瀏覽器完成授權（LINE 內建瀏覽器會被 Google 擋）。
+            </p>
+            <div className={styles.modalActions}>
+              {consentPageUrl ? (
+                <a
+                  href={consentPageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.calendarConnectButton}
+                >
+                  連結 Google 日曆
+                </a>
+              ) : (
+                <p className={styles.modalConsentFallback}>
+                  無法產生授權連結，請關閉後重新開啟。
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => submitEvent(false)}
+                className={styles.calendarSkipButton}
+              >
+                不要 Meet 連結，直接送出
+              </button>
+              <button
+                type="button"
+                onClick={() => setConsentModalVisible(false)}
+                className={styles.modalCancelButton}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
@@ -307,197 +491,16 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <label style={fieldStyle}>
-      <span style={labelStyle}>
+    <label className={styles.field}>
+      <span className={styles.label}>
         {label}
-        {required && <span style={requiredStyle}> *</span>}
+        {required && <span className={styles.required}> *</span>}
       </span>
       {children}
     </label>
   );
 }
 
-function Row({
-  children,
-  isCompact,
-}: {
-  children: ReactNode;
-  isCompact?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        ...rowStyle,
-        flexDirection: isCompact ? "column" : "row",
-      }}
-    >
-      {children}
-    </div>
-  );
+function Row({ children }: { children: ReactNode }) {
+  return <div className={styles.row}>{children}</div>;
 }
-
-function useResponsiveFlags() {
-  const [isCompact, setIsCompact] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const media = window.matchMedia("(max-width: 640px)");
-    const update = () => setIsCompact(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-
-  return { isCompact };
-}
-
-const mainStyle: CSSProperties = {
-  minHeight: "100vh",
-  background: `linear-gradient(165deg, ${THEME.pageBg} 0%, ${THEME.pageBgAlt} 55%, ${THEME.pageBg} 100%)`,
-  color: THEME.text,
-};
-
-const pageInnerStyle: CSSProperties = {
-  maxWidth: "26rem",
-  width: "100%",
-  minWidth: 0,
-  margin: "0 auto",
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.65rem",
-  boxSizing: "border-box",
-};
-
-const pageTitleStyle: CSSProperties = {
-  margin: 0,
-  color: THEME.text,
-  letterSpacing: "-0.03em",
-  fontWeight: 800,
-  lineHeight: 1.15,
-};
-
-const pageSubtitleStyle: CSSProperties = {
-  margin: "0 0 0.35rem",
-  fontSize: "0.9rem",
-  color: THEME.textMuted,
-  lineHeight: 1.45,
-};
-
-const formPanelStyle: CSSProperties = {
-  background: `linear-gradient(145deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.88) 100%)`,
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: THEME.radiusPanel,
-  padding: "1.1rem 0.75rem 1.15rem",
-  boxShadow: THEME.shadowPanel,
-  backdropFilter: `saturate(1.1) blur(${THEME.glassBlur})`,
-  WebkitBackdropFilter: `saturate(1.1) blur(${THEME.glassBlur})`,
-  width: "100%",
-  maxWidth: "100%",
-  minWidth: 0,
-  boxSizing: "border-box",
-  overflow: "hidden",
-};
-
-const formStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "1.1rem",
-  width: "100%",
-  minWidth: 0,
-  maxWidth: "100%",
-  boxSizing: "border-box",
-};
-
-const dateTimeRowWrapStyle: CSSProperties = {
-  width: "100%",
-  minWidth: 0,
-  maxWidth: "100%",
-  overflow: "hidden",
-  boxSizing: "border-box",
-};
-
-const fieldStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.45rem",
-  flex: "1 1 auto",
-  minWidth: 0,
-  width: "100%",
-  maxWidth: "100%",
-  boxSizing: "border-box",
-};
-
-const labelStyle: CSSProperties = {
-  fontSize: "0.82rem",
-  fontWeight: 700,
-  color: THEME.textMuted,
-};
-
-const requiredStyle: CSSProperties = {
-  color: THEME.accent,
-};
-
-const rowStyle: CSSProperties = {
-  display: "flex",
-  gap: "0.75rem",
-  flexWrap: "wrap",
-  width: "100%",
-  minWidth: 0,
-  maxWidth: "100%",
-  boxSizing: "border-box",
-  alignItems: "stretch",
-};
-
-const inputStyle: CSSProperties = {
-  background: THEME.surfaceSubtle,
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: THEME.radiusInput,
-  color: THEME.text,
-  padding: "0.85rem 0.95rem",
-  fontSize: "16px",
-  fontFamily: "inherit",
-  width: "100%",
-  maxWidth: "100%",
-  minWidth: 0,
-  minHeight: "2.85rem",
-  boxSizing: "border-box",
-  WebkitTapHighlightColor: "transparent",
-  boxShadow: THEME.shadowCard,
-};
-
-/** 原生 date/time 在窄容器內易超出，單獨收斂寬度 */
-const dateTimeInputStyle: CSSProperties = {
-  ...inputStyle,
-  display: "block",
-  width: "100%",
-  maxWidth: "100%",
-  minWidth: 0,
-  flex: "none",
-};
-
-const submitButtonStyle: CSSProperties = {
-  marginTop: "0.35rem",
-  width: "100%",
-  minHeight: "3rem",
-  background: THEME.accent,
-  color: "#FFFFFF",
-  border: "none",
-  borderRadius: "18px",
-  padding: "0.75rem 1rem",
-  fontSize: "1.02rem",
-  fontWeight: 800,
-  letterSpacing: "0.02em",
-  boxShadow: `0 8px 22px rgba(${THEME.accentRgb}, 0.35)`,
-  WebkitTapHighlightColor: "transparent",
-};
-
-const errorBoxStyle: CSSProperties = {
-  background: THEME.errorBg,
-  border: `1px solid ${THEME.errorBorder}`,
-  color: THEME.errorText,
-  padding: "0.75rem 1rem",
-  borderRadius: THEME.radiusControl,
-  fontSize: "0.9rem",
-  boxShadow: THEME.shadowCard,
-};

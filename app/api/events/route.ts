@@ -1,16 +1,30 @@
 import {
   createEventWithAttendees,
+  getGoogleCredentialByLineUserId,
+  hasCalendarScope,
+  setEventAutoSummarySchedule,
   setEventReminderSchedule,
   listGroupEvents,
   listLineUsersByIds,
   RepositoryError,
+  updateEventCalendarData,
   upsertLineUser,
+  getGroupDriveFolderId,
+  setEventDriveFolderId,
+  upsertGroupDriveFolderId,
 } from "@/lib/db/repository";
+import {
+  createDriveFolder,
+  setDriveFolderPermission,
+  formatMeetingFolderName,
+} from "@/lib/google/driveAdmin";
 import {
   getBearerToken,
   LineAuthError,
   verifyLineAccessToken,
 } from "@/lib/line/auth";
+import { createCalendarEventWithMeet } from "@/lib/google/calendar";
+import { refreshAccessToken } from "@/lib/google/oauth";
 import { buildMeetingCreatedMentionMessage } from "@/lib/line/eventNotifications";
 import { createMessagingClient } from "@/lib/line/messagingClient";
 import {
@@ -18,6 +32,7 @@ import {
   formatMeetingDateTime,
 } from "@/lib/modules/meeting";
 import { publishEventReminder } from "@/lib/reminders/qstash";
+import { publishTactiqScanJob } from "@/lib/summaries/qstash";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +45,7 @@ type CreateEventRequestBody = {
   location?: string;
   note?: string;
   attendeeUserIds?: number[];
+  wantsMeetingLink?: boolean;
 };
 
 function errorResponse(message: string, status: number) {
@@ -67,6 +83,7 @@ function parseBody(body: CreateEventRequestBody) {
     location: body.location?.trim() ?? "",
     note: body.note?.trim() ?? "",
     attendeeUserIds,
+    wantsMeetingLink: body.wantsMeetingLink !== false,
   };
 }
 
@@ -92,6 +109,7 @@ export async function POST(request: Request) {
       displayName: verifiedUser.displayName,
       pictureUrl: verifiedUser.pictureUrl,
       statusMessage: verifiedUser.statusMessage,
+      email: verifiedUser.email,
     });
 
     const createdEvent = await createEventWithAttendees({
@@ -106,16 +124,72 @@ export async function POST(request: Request) {
     });
     const attendeeLineUsers = await listLineUsersByIds(input.attendeeUserIds);
 
-    const summary = buildMeetingSummary({
-      title: createdEvent.title,
-      timeLabel: formatMeetingDateTime(
-        createdEvent.startsAt,
-        createdEvent.timezone
-      ),
-      location: createdEvent.location,
-      note: createdEvent.description,
-      attendeeNames: createdEvent.attendeeDisplayNames,
-    });
+    // Try to create Google Calendar event and get Meet URL (non-fatal).
+    // Skipped entirely if the user didn't request a meeting link.
+    let meetingUrl: string | null = null;
+    if (input.wantsMeetingLink) {
+      try {
+      const credential = await getGoogleCredentialByLineUserId(verifiedUser.lineUserId);
+      if (credential && hasCalendarScope(credential)) {
+        const { accessToken } = await refreshAccessToken(credential.refreshToken);
+        const attendeeEmails = attendeeLineUsers
+          .map((user) => user.email)
+          .filter((email): email is string => Boolean(email));
+        const calResult = await createCalendarEventWithMeet({
+          accessToken,
+          title: createdEvent.title,
+          startsAt: createdEvent.startsAt,
+          location: createdEvent.location,
+          description: createdEvent.description,
+          attendeeEmails,
+        });
+        meetingUrl = calResult.meetingUrl;
+        try {
+          await updateEventCalendarData({
+            eventId: createdEvent.eventId,
+            meetingUrl: calResult.meetingUrl,
+            calendarEventId: calResult.calendarEventId,
+          });
+        } catch (dbErr) {
+          console.error("[create-event.calendar.persist]", dbErr);
+        }
+      }
+    } catch (err) {
+      console.error("[create-event.calendar]", err);
+    }
+    }
+
+    let driveFolderUrl: string | null = null;
+    try {
+      let parentFolderId = await getGroupDriveFolderId(input.groupId);
+
+      if (!parentFolderId) {
+        const groupFolder = await createDriveFolder({ name: "LINE 群組" });
+        await setDriveFolderPermission({
+          folderId: groupFolder.id,
+          role: "writer",
+        });
+        await upsertGroupDriveFolderId(input.groupId, groupFolder.id);
+        parentFolderId = groupFolder.id;
+      }
+
+      const folderName = formatMeetingFolderName(
+        createdEvent.title,
+        createdEvent.startsAt
+      );
+      const meetingFolder = await createDriveFolder({
+        name: folderName,
+        parentId: parentFolderId,
+      });
+      await setDriveFolderPermission({
+        folderId: meetingFolder.id,
+        role: "writer",
+      });
+      await setEventDriveFolderId(createdEvent.eventId, meetingFolder.id);
+      driveFolderUrl = meetingFolder.webViewLink;
+    } catch (error) {
+      console.error("[create-event.drive-folder]", error);
+    }
 
     let notificationSent = true;
     try {
@@ -131,10 +205,27 @@ export async function POST(request: Request) {
                   timezone: createdEvent.timezone,
                   location: createdEvent.location,
                   note: createdEvent.description,
+                  meetingUrl,
+                  driveFolderUrl,
                   attendees: attendeeLineUsers,
                 }),
               ]
-            : [{ type: "text", text: summary }],
+            : [
+                {
+                  type: "text" as const,
+                  text: buildMeetingSummary({
+                    title: createdEvent.title,
+                    timeLabel: formatMeetingDateTime(
+                      createdEvent.startsAt,
+                      createdEvent.timezone
+                    ),
+                    location: createdEvent.location,
+                    note: createdEvent.description,
+                    attendeeNames: createdEvent.attendeeDisplayNames,
+                    driveFolderUrl,
+                  }),
+                },
+              ],
       });
     } catch (error) {
       notificationSent = false;
@@ -159,11 +250,32 @@ export async function POST(request: Request) {
       console.error("[create-event.schedule-reminder]", error);
     }
 
+    let autoSummaryScheduled = true;
+    try {
+      const scan = await publishTactiqScanJob({
+        eventId: createdEvent.eventId,
+        attempt: 1,
+        startsAt: createdEvent.startsAt,
+        endsAt: createdEvent.endsAt,
+      });
+      await setEventAutoSummarySchedule({
+        eventId: createdEvent.eventId,
+        messageId: scan.messageId,
+        scheduledAt: scan.scheduledAt,
+      });
+    } catch (error) {
+      autoSummaryScheduled = false;
+      console.error("[create-event.schedule-auto-summary]", error);
+    }
+
     return Response.json(
       {
         eventId: createdEvent.eventId,
+        meetingUrl,
         notificationSent,
         reminderScheduled,
+        autoSummaryScheduled,
+        driveFolderUrl,
       },
       { status: 201 }
     );
@@ -199,6 +311,7 @@ export async function GET(request: Request) {
       displayName: verifiedUser.displayName,
       pictureUrl: verifiedUser.pictureUrl,
       statusMessage: verifiedUser.statusMessage,
+      email: verifiedUser.email,
     });
 
     const events = await listGroupEvents(groupId);
