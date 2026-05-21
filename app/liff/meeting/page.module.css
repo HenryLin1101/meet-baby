@@ -435,6 +435,30 @@
   opacity: 0.7;
 }
 
+.reminderCustomUnitSelect {
+  background: #fafbfc;
+  border: 1px solid #d1d9e6;
+  border-radius: 12px;
+  color: #2d3436;
+  padding: 0.6rem 0.5rem;
+  font-size: 15px;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(45, 52, 54, 0.05);
+  appearance: auto;
+}
+
+.reminderCustomUnitSelect:focus {
+  outline: none;
+  border-color: #00c2ff;
+}
+
+.reminderCustomUnitSelect:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .reminderCustomUnit {
   font-size: 0.88rem;
   color: #636e72;

@@ -33,7 +33,6 @@ type GroupMember = {
 };
 
 const REMINDER_PRESETS: { label: string; value: number }[] = [
-  { label: "5 分鐘", value: 5 },
   { label: "10 分鐘", value: 10 },
   { label: "30 分鐘", value: 30 },
   { label: "1 小時", value: 60 },
@@ -65,9 +64,10 @@ export default function MeetingLiffPage() {
   const [consentModalVisible, setConsentModalVisible] = useState(false);
 
   // Reminder lead time
-  const [reminderLeadTimeMinutes, setReminderLeadTimeMinutes] = useState(5);
+  const [reminderLeadTimeMinutes, setReminderLeadTimeMinutes] = useState(10);
   const [customReminderInput, setCustomReminderInput] = useState("");
   const [isCustomReminder, setIsCustomReminder] = useState(false);
+  const [customReminderUnit, setCustomReminderUnit] = useState<number>(1);
 
   // Recurrence
   const [isRecurring, setIsRecurring] = useState(false);
@@ -294,6 +294,14 @@ export default function MeetingLiffPage() {
     }
   }
 
+  function handleCustomUnitChange(unit: number) {
+    setCustomReminderUnit(unit);
+    const parsed = parseInt(customReminderInput, 10);
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      setReminderLeadTimeMinutes(parsed * unit);
+    }
+  }
+
   function toggleWeekday(day: number) {
     setRecurringWeekdays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
@@ -508,8 +516,14 @@ export default function MeetingLiffPage() {
                 {showAdvanced && (
                   <div className={styles.advancedPanel}>
                     <Field label="備註">
-                      <input
+                      <textarea
                         className={styles.input}
+                        style={{ 
+                          minHeight: "4.5rem",   /* 比原本的 5.5rem 矮一點 */
+                          resize: "vertical",    /* 允許使用者垂直拉大 */
+                          lineHeight: "1.5"      /* 讓換行後的文字間距更好閱讀 */
+                        }}
+                        rows={1}                 /* 預設顯示兩行的高度 */
                         value={note}
                         onChange={(e) => setNote(e.target.value)}
                         placeholder="選填"
@@ -540,22 +554,29 @@ export default function MeetingLiffPage() {
                           <option value="custom">自訂…</option>
                         </select>
                         {isCustomReminder && (
-                          <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                             <input
                               type="number"
                               min={1}
-                              max={10080}
                               inputMode="numeric"
                               className={styles.reminderCustomInput}
                               value={customReminderInput}
                               onChange={(e) => handleCustomReminderChange(e.target.value)}
-                              placeholder="分鐘"
                               disabled={disabled}
-                              // eslint-disable-next-line jsx-a11y/no-autofocus
                               autoFocus
                             />
-                            <span className={styles.reminderCustomUnit}>分鐘前</span>
-                          </>
+                            <select
+                              className={styles.reminderCustomUnitSelect}
+                              value={customReminderUnit}
+                              onChange={(e) => handleCustomUnitChange(Number(e.target.value))}
+                              disabled={disabled}
+                            >
+                              <option value={1}>分鐘</option>
+                              <option value={60}>小時</option>
+                              <option value={1440}>天</option>
+                            </select>
+                            <span className={styles.reminderCustomUnit}>前</span>
+                          </div>
                         )}
                       </div>
                     </div>
