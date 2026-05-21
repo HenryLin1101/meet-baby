@@ -16,8 +16,13 @@ export type PublishedEventReminder = {
 export async function publishEventReminder(input: {
   eventId: number;
   startsAt: string;
+  leadTimeMinutes?: number;
 }): Promise<PublishedEventReminder | null> {
-  const reminderTime = resolveReminderScheduleTime(input.startsAt);
+  const leadTimeMs =
+    input.leadTimeMinutes != null
+      ? input.leadTimeMinutes * 60_000
+      : undefined;
+  const reminderTime = resolveReminderScheduleTime(input.startsAt, leadTimeMs);
   if (!reminderTime) {
     return null;
   }

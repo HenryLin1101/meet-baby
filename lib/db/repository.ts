@@ -112,6 +112,7 @@ type EventReminderEventRow = {
   reminder_processing_at: string | null;
   reminder_sent_at: string | null;
   reminder_last_error: string | null;
+  reminder_lead_time_minutes: number;
   meeting_url: string | null;
 };
 
@@ -129,6 +130,7 @@ export type CreateEventWithAttendeesInput = {
   endsAt?: string | null;
   timezone?: string;
   attendeeUserIds: number[];
+  reminderLeadTimeMinutes?: number;
 };
 
 export type CreatedEvent = {
@@ -189,6 +191,7 @@ export type EventReminderDetails = {
   reminderMessageId: string | null;
   reminderScheduledAt: string | null;
   reminderSentAt: string | null;
+  reminderLeadTimeMinutes: number;
   meetingUrl: string | null;
   attendees: LineUserReference[];
 };
@@ -974,7 +977,7 @@ export async function getEventReminderDetails(
   const { data: event, error: eventError } = await supabase
     .from("events")
     .select(
-      "id, group_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_scheduled_at, reminder_processing_at, reminder_sent_at, reminder_last_error, meeting_url"
+      "id, group_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_scheduled_at, reminder_processing_at, reminder_sent_at, reminder_last_error, reminder_lead_time_minutes, meeting_url"
     )
     .eq("id", normalizedEventId)
     .maybeSingle<EventReminderEventRow>();
@@ -1025,6 +1028,7 @@ export async function getEventReminderDetails(
         : new Date(event.reminder_scheduled_at).toISOString(),
     reminderSentAt:
       event.reminder_sent_at === null ? null : new Date(event.reminder_sent_at).toISOString(),
+    reminderLeadTimeMinutes: Number(event.reminder_lead_time_minutes) || 5,
     meetingUrl: event.meeting_url === null ? null : String(event.meeting_url),
     attendees,
   };
@@ -1074,6 +1078,21 @@ export async function createEventWithAttendees(
 
   if (!data) {
     throw new RepositoryError("建立活動失敗。", 500, "DB_ERROR");
+  }
+
+  const leadTimeMinutes =
+    typeof input.reminderLeadTimeMinutes === "number" &&
+    Number.isFinite(input.reminderLeadTimeMinutes) &&
+    input.reminderLeadTimeMinutes > 0
+      ? Math.round(input.reminderLeadTimeMinutes)
+      : 5;
+
+  if (leadTimeMinutes !== 5) {
+    const { error: updateError } = await supabase
+      .from("events")
+      .update({ reminder_lead_time_minutes: leadTimeMinutes })
+      .eq("id", Number(data.event_id));
+    assertNoError(updateError, "儲存提醒設定失敗。");
   }
 
   return toCreatedEvent(data);

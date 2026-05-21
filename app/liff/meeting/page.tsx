@@ -32,6 +32,17 @@ type GroupMember = {
   pictureUrl: string | null;
 };
 
+const REMINDER_PRESETS: { label: string; value: number }[] = [
+  { label: "5 分鐘", value: 5 },
+  { label: "10 分鐘", value: 10 },
+  { label: "30 分鐘", value: 30 },
+  { label: "1 小時", value: 60 },
+  { label: "2 小時", value: 120 },
+  { label: "1 天", value: 1440 },
+];
+
+const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"];
+
 export default function MeetingLiffPage() {
   const [status, setStatus] = useState<Status>(LIFF_ID ? "loading" : "error");
   const [errorMsg, setErrorMsg] = useState<string>(
@@ -52,6 +63,27 @@ export default function MeetingLiffPage() {
   const [meetingType, setMeetingType] = useState<MeetingType>("online");
   const [hasCalendarScope, setHasCalendarScope] = useState(false);
   const [consentModalVisible, setConsentModalVisible] = useState(false);
+
+  // Reminder lead time
+  const [reminderLeadTimeMinutes, setReminderLeadTimeMinutes] = useState(5);
+  const [customReminderInput, setCustomReminderInput] = useState("");
+  const [isCustomReminder, setIsCustomReminder] = useState(false);
+
+  // Recurrence
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringWeekdays, setRecurringWeekdays] = useState<number[]>([]);
+  const [recurringEndDate, setRecurringEndDate] = useState("");
+
+  // Advanced Settings Toggle
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Pre-seed weekday from the chosen date
+  useEffect(() => {
+    if (isRecurring && date) {
+      const weekday = new Date(`${date}T00:00:00`).getDay();
+      setRecurringWeekdays((prev) => (prev.length === 0 ? [weekday] : prev));
+    }
+  }, [isRecurring, date]);
 
   async function loadGroupMembers(
     nextGroupId: string,
@@ -126,7 +158,6 @@ export default function MeetingLiffPage() {
         setAccessToken(nextAccessToken);
         setStatus("checkingCalendar");
 
-        // Check if the meeting creator has Google Calendar scope.
         const scopeResponse = await fetch(
           `/api/google/calendar-scope?groupId=${encodeURIComponent(nextGroupId)}`,
           {
@@ -170,6 +201,16 @@ export default function MeetingLiffPage() {
       window.alert("請至少選擇一位參與者。");
       return;
     }
+    if (isRecurring) {
+      if (recurringWeekdays.length === 0) {
+        window.alert("請至少選擇一個重複星期。");
+        return;
+      }
+      if (!recurringEndDate) {
+        window.alert("請選擇重複結束日期。");
+        return;
+      }
+    }
 
     const wantsMeetingLink = meetingType !== "inPerson";
     if (wantsMeetingLink && !hasCalendarScope) {
@@ -185,22 +226,32 @@ export default function MeetingLiffPage() {
     setStatus("submitting");
 
     try {
+      const body: Record<string, unknown> = {
+        groupId,
+        title,
+        date,
+        time,
+        location,
+        note,
+        attendeeUserIds: selectedAttendeeIds.map(Number),
+        wantsMeetingLink,
+        reminderLeadTimeMinutes,
+      };
+
+      if (isRecurring) {
+        body.recurrence = {
+          weekdays: recurringWeekdays,
+          endDate: recurringEndDate,
+        };
+      }
+
       const response = await fetch("/api/events", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({
-          groupId,
-          title,
-          date,
-          time,
-          location,
-          note,
-          attendeeUserIds: selectedAttendeeIds.map(Number),
-          wantsMeetingLink,
-        }),
+        body: JSON.stringify(body),
       });
 
       const payload = (await response.json()) as {
@@ -227,6 +278,26 @@ export default function MeetingLiffPage() {
       setStatus("ready");
       window.alert("送出失敗：" + (err instanceof Error ? err.message : "unknown"));
     }
+  }
+
+  function handleReminderPreset(value: number) {
+    setReminderLeadTimeMinutes(value);
+    setCustomReminderInput("");
+    setIsCustomReminder(false);
+  }
+
+  function handleCustomReminderChange(raw: string) {
+    setCustomReminderInput(raw);
+    const parsed = parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      setReminderLeadTimeMinutes(parsed);
+    }
+  }
+
+  function toggleWeekday(day: number) {
+    setRecurringWeekdays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+    );
   }
 
   const disabled = status !== "ready";
@@ -278,155 +349,254 @@ export default function MeetingLiffPage() {
     <>
       {showBlockingLoader && <MascotLoadingScreen />}
       {!showBlockingLoader && (
-    <main className={styles.main}>
-      <div className={styles.pageInner}>
-        <h1 className={styles.pageTitle}>預約會議</h1>
-        <p className={styles.pageSubtitle}>
-          填寫資料送出後，會建立活動並通知群組。
-        </p>
+        <main className={styles.main}>
+          <div className={styles.pageInner}>
+            <h1 className={styles.pageTitle}>預約會議</h1>
+            <p className={styles.pageSubtitle}>
+              填寫資料送出後，會建立活動並通知群組。
+            </p>
 
-        {status === "error" && <div className={styles.errorBox}>{errorMsg}</div>}
+            {status === "error" && <div className={styles.errorBox}>{errorMsg}</div>}
 
-        <div className={styles.formPanel}>
-          <form onSubmit={handleSubmit} className={styles.form}>
-            <Field label="會議主題" required>
-              <input
-                className={styles.input}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="例如：專案同步會議"
-                required
-                disabled={disabled}
-                autoComplete="off"
-              />
-            </Field>
-
-            {/* 日期/時間直向堆疊；外層限制寬度避免原生 date/time 撐破白卡 */}
-            <div className={styles.dateTimeRowWrap}>
-              <Row>
-                <Field label="日期" required>
+            <div className={styles.formPanel}>
+              <form onSubmit={handleSubmit} className={styles.form}>
+                <Field label="會議主題" required>
                   <input
-                    className={styles.dateTimeInput}
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
+                    className={styles.input}
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="例如：專案同步會議"
                     required
                     disabled={disabled}
+                    autoComplete="off"
                   />
                 </Field>
-                <Field label="時間" required>
-                  <input
-                    className={styles.dateTimeInput}
-                    type="time"
-                    value={time}
-                    onChange={(e) => setTime(e.target.value)}
-                    required
-                    disabled={disabled}
-                  />
-                </Field>
-              </Row>
-            </div>
 
-            <Field label="會議形式" required>
-              <div className={styles.meetingTypeGroup} role="radiogroup">
-                {(
-                  [
-                    { value: "inPerson", label: "實體" },
-                    { value: "online", label: "線上" },
-                    { value: "hybrid", label: "混合" },
-                  ] as Array<{ value: MeetingType; emoji: string; label: string }>
-                ).map((opt) => {
-                  const active = meetingType === opt.value;
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      onClick={() => setMeetingType(opt.value)}
+                <div className={styles.dateTimeRowWrap}>
+                  <div className={styles.rowAlways}>
+                    <Field label="日期" required>
+                      <input
+                        className={styles.dateTimeInput}
+                        type="date"
+                        value={date}
+                        onChange={(e) => setDate(e.target.value)}
+                        required
+                        disabled={disabled}
+                      />
+                    </Field>
+                    <Field label="時間" required>
+                      <input
+                        className={styles.dateTimeInput}
+                        type="time"
+                        value={time}
+                        onChange={(e) => setTime(e.target.value)}
+                        required
+                        disabled={disabled}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                {/* Recurring meeting toggle */}
+                <label className={styles.toggleRow}>
+                  <input
+                    type="checkbox"
+                    checked={isRecurring}
+                    onChange={(e) => setIsRecurring(e.target.checked)}
+                    disabled={disabled}
+                    className={styles.toggleCheckbox}
+                  />
+                  <span className={styles.toggleLabel}>重複會議</span>
+                </label>
+
+                {isRecurring && (
+                  <div className={styles.recurrencePanel}>
+                    <span className={styles.label}>重複星期</span>
+                    <div className={styles.weekdayRow}>
+                      {WEEKDAY_LABELS.map((label, day) => {
+                        const active = recurringWeekdays.includes(day);
+                        return (
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() => toggleWeekday(day)}
+                            disabled={disabled}
+                            className={`${styles.weekdayButton} ${active ? styles.weekdayButtonActive : ""}`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <Field label="重複結束日期" required>
+                      <input
+                        className={styles.dateTimeInput}
+                        type="date"
+                        value={recurringEndDate}
+                        min={date || undefined}
+                        onChange={(e) => setRecurringEndDate(e.target.value)}
+                        required={isRecurring}
+                        disabled={disabled}
+                      />
+                    </Field>
+                  </div>
+                )}
+
+                <Field label="會議形式" required>
+                  <div className={styles.meetingTypeGroup} role="radiogroup">
+                    {(
+                      [
+                        { value: "inPerson", label: "實體" },
+                        { value: "online", label: "線上" },
+                        { value: "hybrid", label: "混合" },
+                      ] as Array<{ value: MeetingType; emoji: string; label: string }>
+                    ).map((opt) => {
+                      const active = meetingType === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onClick={() => setMeetingType(opt.value)}
+                          disabled={disabled}
+                          className={`${styles.meetingTypeOption} ${active ? styles.meetingTypeOptionActive : ""}`}
+                        >
+                          <span className={styles.meetingTypeOptionEmoji}>{opt.emoji}</span>
+                          <span>{opt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {meetingType !== "inPerson" && (
+                    <p className={styles.meetingTypeHint}>
+                      系統會自動產生 Google Meet 連結並一併通知群組。
+                    </p>
+                  )}
+                </Field>
+
+                {meetingType !== "online" && (
+                  <Field label="地點">
+                    <input
+                      className={styles.input}
+                      value={location}
+                      onChange={(e) => setLocation(e.target.value)}
+                      placeholder="例如：會議室 A"
                       disabled={disabled}
-                      className={`${styles.meetingTypeOption} ${active ? styles.meetingTypeOptionActive : ""}`}
-                    >
-                      <span className={styles.meetingTypeOptionEmoji}>{opt.emoji}</span>
-                      <span>{opt.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              {meetingType !== "inPerson" && (
-                <p className={styles.meetingTypeHint}>
-                  系統會自動產生 Google Meet 連結並一併通知群組。
-                </p>
-              )}
-            </Field>
+                    />
+                  </Field>
+                )}
 
-            {meetingType !== "online" && (
-              <Field label="地點">
-                <input
-                  className={styles.input}
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="例如：會議室 A"
+                <Field label="參與者" required>
+                  <MemberMultiSelect
+                    members={members}
+                    selectedIds={selectedAttendeeIds}
+                    onChange={setSelectedAttendeeIds}
+                    disabled={disabled || members.length === 0}
+                  />
+                </Field>
+
+                <button
+                  type="button"
+                  className={styles.advancedToggle}
+                  onClick={() => setShowAdvanced(!showAdvanced)}
                   disabled={disabled}
-                />
-              </Field>
-            )}
-
-            <Field label="備註">
-              <textarea
-                className={styles.input}
-                style={{ minHeight: "5.5rem", resize: "vertical" }}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="選填"
-                disabled={disabled}
-              />
-            </Field>
-
-            <Field label="參與者" required>
-              <MemberMultiSelect
-                members={members}
-                selectedIds={selectedAttendeeIds}
-                onChange={setSelectedAttendeeIds}
-                disabled={disabled || members.length === 0}
-              />
-            </Field>
-
-            <button
-              type="submit"
-              className={styles.submitButton}
-              disabled={disabled}
-            >
-              {status === "submitting"
-                ? "送出中…"
-                : status === "done"
-                  ? "已送出"
-                  : status === "loading" ||
-                      status === "checkingCalendar" ||
-                      status === "loadingMembers"
-                    ? "載入中…"
-                    : "送出預約"}
-            </button>
-
-            {status === "done" && createdMeetingUrl && (
-              <div className={styles.meetingUrlBox}>
-                <span className={styles.meetingUrlBoxLabel}>
-                  Google Meet 連結
-                </span>
-                <a
-                  href={createdMeetingUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={styles.meetingUrlBoxLink}
                 >
-                  {createdMeetingUrl}
-                </a>
-              </div>
-            )}
-          </form>
-        </div>
-      </div>
-    </main>
+                  {showAdvanced ? "收合進階設定" : "+ 展開進階設定 (備註、提醒時間)"}
+                </button>
+
+                {showAdvanced && (
+                  <div className={styles.advancedPanel}>
+                    <Field label="備註">
+                      <input
+                        className={styles.input}
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder="選填"
+                        disabled={disabled}
+                      />
+                    </Field>
+
+                    {/* Reminder lead time */}
+                    <div className={styles.field}>
+                      <span className={styles.label}>提醒時間</span>
+                      <div className={styles.reminderRow}>
+                        <select
+                          className={styles.reminderSelect}
+                          value={isCustomReminder ? "custom" : String(reminderLeadTimeMinutes)}
+                          onChange={(e) => {
+                            if (e.target.value === "custom") {
+                              setIsCustomReminder(true);
+                              setCustomReminderInput("");
+                            } else {
+                              handleReminderPreset(Number(e.target.value));
+                            }
+                          }}
+                          disabled={disabled}
+                        >
+                          {REMINDER_PRESETS.map((p) => (
+                            <option key={p.value} value={String(p.value)}>{p.label}前</option>
+                          ))}
+                          <option value="custom">自訂…</option>
+                        </select>
+                        {isCustomReminder && (
+                          <>
+                            <input
+                              type="number"
+                              min={1}
+                              max={10080}
+                              inputMode="numeric"
+                              className={styles.reminderCustomInput}
+                              value={customReminderInput}
+                              onChange={(e) => handleCustomReminderChange(e.target.value)}
+                              placeholder="分鐘"
+                              disabled={disabled}
+                              // eslint-disable-next-line jsx-a11y/no-autofocus
+                              autoFocus
+                            />
+                            <span className={styles.reminderCustomUnit}>分鐘前</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className={styles.submitButton}
+                  disabled={disabled}
+                >
+                  {status === "submitting"
+                    ? "送出中…"
+                    : status === "done"
+                      ? "已送出"
+                      : status === "loading" ||
+                          status === "checkingCalendar" ||
+                          status === "loadingMembers"
+                        ? "載入中…"
+                        : "送出預約"}
+                </button>
+
+                {status === "done" && createdMeetingUrl && (
+                  <div className={styles.meetingUrlBox}>
+                    <span className={styles.meetingUrlBoxLabel}>
+                      Google Meet 連結
+                    </span>
+                    <a
+                      href={createdMeetingUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.meetingUrlBoxLink}
+                    >
+                      {createdMeetingUrl}
+                    </a>
+                  </div>
+                )}
+              </form>
+            </div>
+          </div>
+        </main>
       )}
       {consentModalVisible && (
         <div
@@ -499,8 +669,4 @@ function Field({
       {children}
     </label>
   );
-}
-
-function Row({ children }: { children: ReactNode }) {
-  return <div className={styles.row}>{children}</div>;
 }
