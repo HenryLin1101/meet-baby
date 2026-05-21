@@ -584,14 +584,37 @@ export default function DashboardLiffPage() {
         }}
       >
         <div style={calendarColumnStyle}>
-          <h1
-            style={{
-              ...heroTitleStyle,
-              fontSize: isCompact ? "2.1rem" : "2.5rem",
-            }}
-          >
-            Meeting Dashboard
-          </h1>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem" }}>
+            <h1
+              style={{
+                ...heroTitleStyle,
+                fontSize: isCompact ? "2.1rem" : "2.5rem",
+                margin: 0,
+              }}
+            >
+              Meeting Dashboard
+            </h1>
+            <a
+              href="/liff/rag"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                flexShrink: 0,
+                padding: isCompact ? "0.5rem" : "0.5rem 0.9rem",
+                borderRadius: "50px",
+                background: `rgba(0, 194, 255, 0.12)`,
+                border: `1px solid rgba(0, 194, 255, 0.35)`,
+                color: THEME.accent,
+                fontWeight: 700,
+                fontSize: "0.85rem",
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              🔍{!isCompact && " 會議記錄查詢"}
+            </a>
+          </div>
 
           {status === "error" && <div style={errorBoxStyle}>{errorMsg}</div>}
 
@@ -1094,29 +1117,6 @@ export default function DashboardLiffPage() {
         </div>
       </div>
 
-      <div style={{ padding: "0 1rem 1.5rem", maxWidth: "900px", margin: "0 auto", width: "100%" }}>
-        <a
-          href="/liff/rag"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "0.5rem",
-            width: "100%",
-            padding: "0.85rem",
-            borderRadius: "22px",
-            background: `rgba(0, 194, 255, 0.12)`,
-            border: `1px solid rgba(0, 194, 255, 0.35)`,
-            color: THEME.accent,
-            fontWeight: 700,
-            fontSize: "0.95rem",
-            textDecoration: "none",
-            boxShadow: "0 4px 12px rgba(0, 194, 255, 0.15)",
-          }}
-        >
-          會議記錄查詢
-        </a>
-      </div>
     </main>
       )}
     </>

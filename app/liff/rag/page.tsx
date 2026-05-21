@@ -123,7 +123,30 @@ export default function RagLiffPage() {
 
   return (
     <main style={mainStyle}>
-      <h1 style={titleStyle}>會議記錄查詢</h1>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+        <a
+          href="/liff/dashboard"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "2.2rem",
+            height: "2.2rem",
+            borderRadius: "50%",
+            background: THEME.surface,
+            border: `1px solid ${THEME.surfaceBorder}`,
+            color: THEME.text,
+            textDecoration: "none",
+            fontSize: "1rem",
+            flexShrink: 0,
+            boxShadow: THEME.shadowCard,
+          }}
+          aria-label="返回 Dashboard"
+        >
+          ‹
+        </a>
+        <h1 style={{ ...titleStyle, margin: 0 }}>會議記錄查詢</h1>
+      </div>
 
       {status === "error" && (
         <div style={errorBoxStyle}>{errorMsg}</div>
