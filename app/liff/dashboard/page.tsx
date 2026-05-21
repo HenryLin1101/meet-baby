@@ -64,6 +64,8 @@ type MeetingItem = {
   groupPictureUrl: string | null;
   groupColor: string;
   startsAtIso: string;
+  description: string | null;
+  meetingUrl: string | null;
 };
 
 type DashboardEvent = {
@@ -77,6 +79,7 @@ type DashboardEvent = {
   timezone: string;
   status: string;
   ownerDisplayName: string;
+  meetingUrl: string | null;
 };
 
 type TodoItem = {
@@ -136,6 +139,18 @@ export default function DashboardLiffPage() {
   const [newTodoAssignees, setNewTodoAssignees] = useState<number[]>([]);
   const [addingTodo, setAddingTodo] = useState(false);
   const [showAddTodoModal, setShowAddTodoModal] = useState(false);
+  const [expandedMeetingIds, setExpandedMeetingIds] = useState<Set<string>>(
+    () => new Set()
+  );
+
+  function toggleMeetingExpanded(id: string) {
+    setExpandedMeetingIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (showAddTodoModal) {
@@ -777,30 +792,15 @@ export default function DashboardLiffPage() {
                 {selectedMeetings
                   .slice()
                   .sort((a, b) => a.startsAtIso.localeCompare(b.startsAtIso))
-                  .map((meeting) => {
-                    const locationText = meeting.location?.trim() ?? "";
-                    const hasLocation =
-                      Boolean(locationText) && locationText !== "未提供地點";
-                    return (
-                    <article key={meeting.id} style={meetingCardCompactStyle}>
-                      <div style={meetingTitleStyle}>{meeting.title}</div>
-                      <div style={meetingCompactRowStyle}>
-                        <span
-                          style={{
-                            ...groupPillDotStyle,
-                            background: meeting.groupColor,
-                            marginRight: "0.35rem",
-                          }}
-                        />
-                        <span style={meetingCompactMetaStyle}>{meeting.groupName}</span>
-                      </div>
-                      <div style={meetingCompactMetaStyle}>{meeting.time}</div>
-                      {hasLocation ? (
-                        <div style={meetingCompactMetaStyle}>{locationText}</div>
-                      ) : null}
-                    </article>
-                    );
-                  })}
+                  .map((meeting) => (
+                    <MeetingCard
+                      key={meeting.id}
+                      meeting={meeting}
+                      expanded={expandedMeetingIds.has(meeting.id)}
+                      onToggle={() => toggleMeetingExpanded(meeting.id)}
+                      showDate={false}
+                    />
+                  ))}
               </div>
             )}
           </div>
@@ -812,22 +812,13 @@ export default function DashboardLiffPage() {
             ) : (
               <div style={stackStyle}>
                 {upcomingMeetings.map((meeting) => (
-                  <article key={meeting.id} style={meetingCardCompactStyle}>
-                    <div style={meetingTitleStyle}>{meeting.title}</div>
-                    <div style={meetingCompactRowStyle}>
-                      <span
-                        style={{
-                          ...groupPillDotStyle,
-                          background: meeting.groupColor,
-                          marginRight: "0.35rem",
-                        }}
-                      />
-                      <span style={meetingCompactMetaStyle}>{meeting.groupName}</span>
-                    </div>
-                    <div style={meetingCompactMetaStyle}>
-                      {meeting.date} {meeting.time}
-                    </div>
-                  </article>
+                  <MeetingCard
+                    key={meeting.id}
+                    meeting={meeting}
+                    expanded={expandedMeetingIds.has(meeting.id)}
+                    onToggle={() => toggleMeetingExpanded(meeting.id)}
+                    showDate
+                  />
                 ))}
               </div>
             )}
@@ -1254,6 +1245,8 @@ function mapEventToMeetingItem(
     groupPictureUrl: group.pictureUrl,
     groupColor: resolveGroupColor(event.lineGroupId),
     startsAtIso: startsAt.toISOString(),
+    description: event.description?.trim() ? event.description : null,
+    meetingUrl: event.meetingUrl?.trim() ? event.meetingUrl : null,
   };
 }
 
@@ -1750,6 +1743,131 @@ const assigneeChipRemoveStyle: CSSProperties = {
   padding: "0 0.1rem",
   lineHeight: 1,
 };
+
+function MeetingCard({
+  meeting,
+  expanded,
+  onToggle,
+  showDate,
+}: {
+  meeting: MeetingItem;
+  expanded: boolean;
+  onToggle: () => void;
+  showDate: boolean;
+}) {
+  const locationText = meeting.location?.trim() ?? "";
+  const hasLocation = Boolean(locationText) && locationText !== "未提供地點";
+  const description = meeting.description?.trim() ?? "";
+  const meetingUrl = meeting.meetingUrl?.trim() ?? "";
+  const hasExpandable = Boolean(description) || Boolean(meetingUrl);
+
+  return (
+    <article
+      style={{
+        ...meetingCardCompactStyle,
+        cursor: hasExpandable ? "pointer" : "default",
+      }}
+      onClick={hasExpandable ? onToggle : undefined}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={meetingTitleStyle}>{meeting.title}</div>
+          <div style={meetingCompactRowStyle}>
+            <span
+              style={{
+                ...groupPillDotStyle,
+                background: meeting.groupColor,
+                marginRight: "0.35rem",
+              }}
+            />
+            <span style={meetingCompactMetaStyle}>{meeting.groupName}</span>
+          </div>
+          <div style={meetingCompactMetaStyle}>
+            {showDate ? `${meeting.date} ${meeting.time}` : meeting.time}
+          </div>
+          {hasLocation && (
+            <div style={meetingCompactMetaStyle}>{locationText}</div>
+          )}
+        </div>
+        {hasExpandable && (
+          <span
+            aria-hidden
+            style={{
+              color: THEME.textMuted,
+              fontSize: "0.85rem",
+              flexShrink: 0,
+              marginTop: "0.15rem",
+              transition: "transform 0.15s ease",
+              transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+            }}
+          >
+            ▸
+          </span>
+        )}
+      </div>
+
+      {hasExpandable && expanded && (
+        <div
+          style={{
+            marginTop: "0.55rem",
+            paddingTop: "0.55rem",
+            borderTop: `1px solid ${THEME.surfaceBorder}`,
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.45rem",
+          }}
+        >
+          {description && (
+            <div
+              style={{
+                fontSize: "0.82rem",
+                color: THEME.text,
+                lineHeight: 1.5,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+            >
+              {description}
+            </div>
+          )}
+          {meetingUrl && (
+            <a
+              href={meetingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                fontSize: "0.82rem",
+                color: THEME.accent,
+                textDecoration: "none",
+                fontWeight: 600,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.3rem",
+                wordBreak: "break-all",
+              }}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+              加入會議
+            </a>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
 
 function TodoItemCard({
   todo,

@@ -82,6 +82,7 @@ type ListedEventRow = {
   ends_at: string | null;
   timezone: string;
   status: string;
+  meeting_url: string | null;
 };
 
 type ListedEventOwnerRow = {
@@ -157,6 +158,7 @@ export type ListedEvent = {
   timezone: string;
   status: string;
   ownerDisplayName: string;
+  meetingUrl: string | null;
 };
 
 export type UserChatGroup = {
@@ -720,7 +722,7 @@ export async function listGroupEvents(
   const { data: events, error: eventError } = await supabase
     .from("events")
     .select(
-      "id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status"
+      "id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status, meeting_url"
     )
     .eq("group_id", group.id)
     .eq("status", "scheduled")
@@ -763,6 +765,7 @@ export async function listGroupEvents(
     status: String(row.status),
     ownerDisplayName:
       ownerMap.get(Number(row.created_by_user_id)) ?? "未知建立者",
+    meetingUrl: row.meeting_url === null ? null : String(row.meeting_url),
   }));
 }
 
@@ -817,7 +820,7 @@ export async function listEventsByGroupIds(input: {
   let query = supabase
     .from("events")
     .select(
-      "id, group_id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status"
+      "id, group_id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status, meeting_url"
     )
     .in("group_id", groupIds)
     .eq("status", "scheduled")
@@ -872,6 +875,7 @@ export async function listEventsByGroupIds(input: {
         status: String(row.status),
         ownerDisplayName:
           ownerMap.get(Number(row.created_by_user_id)) ?? "未知建立者",
+        meetingUrl: row.meeting_url === null ? null : String(row.meeting_url),
       } satisfies ListedEventWithGroup;
     })
     .filter((x): x is ListedEventWithGroup => Boolean(x));
