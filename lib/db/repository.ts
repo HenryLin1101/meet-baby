@@ -87,11 +87,6 @@ type ListedEventRow = {
   allow_others_to_modify: boolean | null;
 };
 
-type ListedEventOwnerRow = {
-  id: number;
-  display_name: string;
-};
-
 type UpcomingEventRow = {
   event_id: number;
   line_group_id: string;

@@ -144,12 +144,22 @@ export default function DashboardLiffPage() {
   const [todoScope, setTodoScope] = useState<"all" | "mine">("all");
   const [groupMembers, setGroupMembers] = useState<Record<string, TodoGroupMember[]>>({});
   const [showCompleted, setShowCompleted] = useState(false);
-  const [newTodoText, setNewTodoText] = useState("");
-  const [newTodoGroupId, setNewTodoGroupId] = useState<string>("");
-  const [newTodoDue, setNewTodoDue] = useState("");
-  const [newTodoAssignees, setNewTodoAssignees] = useState<number[]>([]);
+  const [addTodoForm, setAddTodoForm] = useState({
+    text: "",
+    lineGroupId: "",
+    due: "",
+    assignees: [] as number[],
+  });
   const [addingTodo, setAddingTodo] = useState(false);
   const [showAddTodoModal, setShowAddTodoModal] = useState(false);
+  const [editingTodo, setEditingTodo] = useState<TodoItem | null>(null);
+  const [editTodoForm, setEditTodoForm] = useState({
+    text: "",
+    lineGroupId: "",
+    due: "",
+    assignees: [] as number[],
+  });
+  const [savingTodoEdit, setSavingTodoEdit] = useState(false);
   const [expandedMeetingIds, setExpandedMeetingIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -310,6 +320,61 @@ export default function DashboardLiffPage() {
     }
   }, [showAddTodoModal]);
 
+  useEffect(() => {
+    if (editingTodo) {
+      document.body.style.overflow = "hidden";
+      return () => { document.body.style.overflow = ""; };
+    }
+  }, [editingTodo]);
+
+  function openTodoEditModal(todo: TodoItem) {
+    setEditingTodo(todo);
+    setEditTodoForm({
+      text: todo.item,
+      lineGroupId: todo.lineGroupId,
+      due: todo.due && /^\d{4}-\d{2}-\d{2}/.test(todo.due) ? todo.due.slice(0, 10) : "",
+      assignees: todo.assignedUsers.map((u) => u.userId),
+    });
+  }
+
+  async function handleSaveTodoEdit() {
+    if (!editingTodo || !lineAccessToken) return;
+    const text = editTodoForm.text.trim();
+    if (!text) return;
+    const targetGroup = groups.find((g) => g.lineGroupId === editTodoForm.lineGroupId);
+    if (!targetGroup) return;
+    setSavingTodoEdit(true);
+    try {
+      const res = await fetch(`/api/todo-items/${editingTodo.id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${lineAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          item: text,
+          groupId: targetGroup.groupId,
+          due: editTodoForm.due || "",
+          assignedUserIds: editTodoForm.assignees,
+        }),
+      });
+      if (!res.ok) {
+        console.error("[dashboard.editTodo]", await res.text());
+        return;
+      }
+      const data = (await res.json()) as { todoItem?: TodoItem };
+      if (data.todoItem) {
+        const updated = data.todoItem;
+        setTodoItems((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      }
+      setEditingTodo(null);
+    } catch (err) {
+      console.error("[dashboard.editTodo]", err);
+    } finally {
+      setSavingTodoEdit(false);
+    }
+  }
+
   /** 避免每次 refetch 都把選取日期覆寫成 API 陣列第一筆（例如固定跳回 4/21） */
   const didApplyInitialSelection = useRef(false);
   /** 首次載入才顯示整頁的 MascotLoadingScreen；切月份時在背景 refetch，不卸載整個 dashboard */
@@ -403,8 +468,14 @@ export default function DashboardLiffPage() {
           if (Object.keys(prev).length > 0) return prev;
           return Object.fromEntries(nextGroups.map((g) => [g.lineGroupId, true]));
         });
-        setNewTodoGroupId((prev) =>
-          prev || (nextGroups.length > 0 ? nextGroups[0].lineGroupId : "")
+        setAddTodoForm((prev) =>
+          prev.lineGroupId
+            ? prev
+            : {
+                ...prev,
+                lineGroupId:
+                  nextGroups.length > 0 ? nextGroups[0].lineGroupId : "",
+              }
         );
         setMeetings(nextMeetings);
 
@@ -554,44 +625,18 @@ export default function DashboardLiffPage() {
     }
   }
 
-  async function handleUpdateTodoDue(id: number, due: string) {
-    if (!lineAccessToken) return;
-    const prev = todoItems.find((t) => t.id === id);
-    if (!prev) return;
-    setTodoItems((items) => items.map((t) => (t.id === id ? { ...t, due } : t)));
-    try {
-      const res = await fetch(`/api/todo-items/${id}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${lineAccessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ due }),
-      });
-      if (!res.ok) {
-        setTodoItems((items) =>
-          items.map((t) => (t.id === id ? { ...t, due: prev.due } : t))
-        );
-      }
-    } catch {
-      setTodoItems((items) =>
-        items.map((t) => (t.id === id ? { ...t, due: prev.due } : t))
-      );
-    }
-  }
-
   async function handleAddTodo() {
-    if (!lineAccessToken || !newTodoText.trim() || !newTodoGroupId) return;
-    const group = groups.find((g) => g.lineGroupId === newTodoGroupId);
+    if (!lineAccessToken || !addTodoForm.text.trim() || !addTodoForm.lineGroupId) return;
+    const group = groups.find((g) => g.lineGroupId === addTodoForm.lineGroupId);
     if (!group) return;
     setAddingTodo(true);
     try {
       const payload: Record<string, unknown> = {
         groupId: group.groupId,
-        item: newTodoText.trim(),
+        item: addTodoForm.text.trim(),
       };
-      if (newTodoDue) payload.due = newTodoDue;
-      if (newTodoAssignees.length > 0) payload.assignedUserIds = newTodoAssignees;
+      if (addTodoForm.due) payload.due = addTodoForm.due;
+      if (addTodoForm.assignees.length > 0) payload.assignedUserIds = addTodoForm.assignees;
 
       const res = await fetch("/api/todo-items", {
         method: "POST",
@@ -606,9 +651,12 @@ export default function DashboardLiffPage() {
         if (data.todoItem) {
           setTodoItems((prev) => [...prev, data.todoItem!]);
         }
-        setNewTodoText("");
-        setNewTodoDue("");
-        setNewTodoAssignees([]);
+        setAddTodoForm((prev) => ({
+          text: "",
+          lineGroupId: prev.lineGroupId,
+          due: "",
+          assignees: [],
+        }));
         setShowAddTodoModal(false);
       } else {
         console.error("[dashboard.addTodo]", await res.text());
@@ -617,86 +665,6 @@ export default function DashboardLiffPage() {
       console.error("[dashboard.addTodo]", err);
     } finally {
       setAddingTodo(false);
-    }
-  }
-
-  async function handleUpdateTodoText(id: number, item: string) {
-    if (!lineAccessToken || !item.trim()) return;
-    const prev = todoItems.find((t) => t.id === id);
-    if (!prev) return;
-    setTodoItems((items) => items.map((t) => (t.id === id ? { ...t, item } : t)));
-    try {
-      const res = await fetch(`/api/todo-items/${id}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${lineAccessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ item }),
-      });
-      if (!res.ok) {
-        setTodoItems((items) =>
-          items.map((t) => (t.id === id ? { ...t, item: prev.item } : t))
-        );
-      }
-    } catch {
-      setTodoItems((items) =>
-        items.map((t) => (t.id === id ? { ...t, item: prev.item } : t))
-      );
-    }
-  }
-
-  async function handleUpdateTodoAssignees(id: number, assignedUserIds: number[]) {
-    if (!lineAccessToken) return;
-    const prev = todoItems.find((t) => t.id === id);
-    if (!prev) return;
-    try {
-      const res = await fetch(`/api/todo-items/${id}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${lineAccessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ assignedUserIds }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { todoItem?: TodoItem };
-        if (data.todoItem) {
-          setTodoItems((items) =>
-            items.map((t) => (t.id === id ? data.todoItem! : t))
-          );
-        }
-      }
-    } catch {
-      // keep previous state
-    }
-  }
-
-  async function handleUpdateTodoGroup(id: number, newLineGroupId: string) {
-    if (!lineAccessToken) return;
-    const group = groups.find((g) => g.lineGroupId === newLineGroupId);
-    if (!group) return;
-    const prev = todoItems.find((t) => t.id === id);
-    if (!prev) return;
-    try {
-      const res = await fetch(`/api/todo-items/${id}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${lineAccessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ groupId: group.groupId }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { todoItem?: TodoItem };
-        if (data.todoItem) {
-          setTodoItems((items) =>
-            items.map((t) => (t.id === id ? data.todoItem! : t))
-          );
-        }
-      }
-    } catch {
-      // keep previous state
     }
   }
 
@@ -1053,200 +1021,6 @@ export default function DashboardLiffPage() {
               </div>
             </div>
 
-            {showAddTodoModal && (
-              <div
-                style={{
-                  position: "fixed",
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  background: "rgba(0, 0, 0, 0.45)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  zIndex: 9999,
-                  padding: "1rem",
-                  touchAction: "none",
-                  overscrollBehavior: "contain",
-                }}
-                onClick={(e) => {
-                  if (e.target === e.currentTarget) setShowAddTodoModal(false);
-                }}
-                onTouchMove={(e) => e.preventDefault()}
-              >
-                <div
-                  style={{
-                    background: THEME.surface,
-                    borderRadius: THEME.radiusPanel,
-                    padding: "1.5rem",
-                    width: "100%",
-                    maxWidth: "380px",
-                    boxShadow: THEME.shadowPanel,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "1rem",
-                    maxHeight: "85vh",
-                    overflowY: "auto",
-                    overscrollBehavior: "contain",
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  onTouchMove={(e) => e.stopPropagation()}
-                >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: THEME.text }}>
-                      新增待辦事項
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setShowAddTodoModal(false)}
-                      style={{
-                        border: "none",
-                        background: "transparent",
-                        fontSize: "1.2rem",
-                        color: THEME.textMuted,
-                        cursor: "pointer",
-                        padding: "0.2rem",
-                        lineHeight: 1,
-                      }}
-                      aria-label="關閉"
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                    <div>
-                      <label style={modalLabelStyle}>待辦事項</label>
-                      <input
-                        type="text"
-                        value={newTodoText}
-                        onChange={(e) => setNewTodoText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleAddTodo();
-                        }}
-                        placeholder="輸入待辦事項內容…"
-                        autoFocus
-                        style={modalFieldStyle}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={modalLabelStyle}>群組</label>
-                      <select
-                        value={newTodoGroupId}
-                        onChange={(e) => {
-                          setNewTodoGroupId(e.target.value);
-                          setNewTodoAssignees([]);
-                        }}
-                        style={modalFieldStyle}
-                        aria-label="選擇群組"
-                      >
-                        <option value="">選擇群組</option>
-                        {groups.map((g) => (
-                          <option key={g.lineGroupId} value={g.lineGroupId}>
-                            {g.name?.trim() || "未命名群組"}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={modalLabelStyle}>截止日期</label>
-                      <div style={{ position: "relative" }}>
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke={THEME.textMuted}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          style={{ position: "absolute", left: "0.65rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
-                        >
-                          <circle cx="12" cy="12" r="10"/>
-                          <polyline points="12 6 12 12 16 14"/>
-                        </svg>
-                        <input
-                          type="date"
-                          value={newTodoDue}
-                          onChange={(e) => setNewTodoDue(e.target.value)}
-                          style={{ ...modalFieldStyle, paddingLeft: "2.2rem" }}
-                          aria-label="截止日期"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label style={modalLabelStyle}>指派成員</label>
-                      <select
-                        value=""
-                        onChange={(e) => {
-                          const uid = Number(e.target.value);
-                          if (uid && !newTodoAssignees.includes(uid)) {
-                            setNewTodoAssignees((prev) => [...prev, uid]);
-                          }
-                        }}
-                        style={modalFieldStyle}
-                        aria-label="指派成員"
-                        disabled={!newTodoGroupId}
-                      >
-                        <option value="">{newTodoGroupId ? "選擇成員" : "請先選擇群組"}</option>
-                        {(groupMembers[newTodoGroupId] ?? [])
-                          .filter((m) => !newTodoAssignees.includes(m.userId))
-                          .map((m) => (
-                            <option key={m.userId} value={m.userId}>
-                              {m.displayName}
-                            </option>
-                          ))}
-                      </select>
-                      {newTodoAssignees.length > 0 && (
-                        <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-                          {newTodoAssignees.map((uid) => {
-                            const m = (groupMembers[newTodoGroupId] ?? []).find((x) => x.userId === uid);
-                            return (
-                              <span key={uid} style={assigneeChipStyle}>
-                                {m?.displayName ?? "?"}
-                                <button
-                                  type="button"
-                                  onClick={() => setNewTodoAssignees((prev) => prev.filter((id) => id !== uid))}
-                                  style={assigneeChipRemoveStyle}
-                                >
-                                  ✕
-                                </button>
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleAddTodo}
-                    disabled={addingTodo || !newTodoText.trim() || !newTodoGroupId}
-                    style={{
-                      background: THEME.accent,
-                      color: "#FFF",
-                      border: "none",
-                      borderRadius: "12px",
-                      padding: "0.65rem",
-                      fontSize: "0.9rem",
-                      fontWeight: 700,
-                      cursor: addingTodo || !newTodoText.trim() || !newTodoGroupId ? "not-allowed" : "pointer",
-                      opacity: addingTodo || !newTodoText.trim() || !newTodoGroupId ? 0.5 : 1,
-                      marginTop: "0.25rem",
-                      transition: "opacity 0.15s",
-                    }}
-                  >
-                    {addingTodo ? "新增中…" : "新增"}
-                  </button>
-                </div>
-              </div>
-            )}
-
             {pendingTodos.length === 0 ? (
               <p style={emptyStyle}>目前沒有未完成的待辦事項。</p>
             ) : (
@@ -1257,13 +1031,9 @@ export default function DashboardLiffPage() {
                     todo={todo}
                     groups={groups}
                     groupColor={resolveGroupColor(todo.lineGroupId)}
-                    members={groupMembers[todo.lineGroupId] ?? []}
                     onToggle={() => handleToggleTodo(todo.id, true)}
                     onDelete={() => handleDeleteTodo(todo.id)}
-                    onUpdateDue={(due) => handleUpdateTodoDue(todo.id, due)}
-                    onUpdateAssignees={(uids) => handleUpdateTodoAssignees(todo.id, uids)}
-                    onUpdateText={(text) => handleUpdateTodoText(todo.id, text)}
-                    onUpdateGroup={(gid) => handleUpdateTodoGroup(todo.id, gid)}
+                    onOpenEdit={() => openTodoEditModal(todo)}
                   />
                 ))}
               </div>
@@ -1286,13 +1056,9 @@ export default function DashboardLiffPage() {
                         todo={todo}
                         groups={groups}
                         groupColor={resolveGroupColor(todo.lineGroupId)}
-                        members={groupMembers[todo.lineGroupId] ?? []}
                         onToggle={() => handleToggleTodo(todo.id, false)}
                         onDelete={() => handleDeleteTodo(todo.id)}
-                        onUpdateDue={(due) => handleUpdateTodoDue(todo.id, due)}
-                        onUpdateAssignees={(uids) => handleUpdateTodoAssignees(todo.id, uids)}
-                        onUpdateText={(text) => handleUpdateTodoText(todo.id, text)}
-                        onUpdateGroup={(gid) => handleUpdateTodoGroup(todo.id, gid)}
+                        onOpenEdit={() => openTodoEditModal(todo)}
                       />
                     ))}
                   </div>
@@ -1304,6 +1070,34 @@ export default function DashboardLiffPage() {
       </div>
 
     </main>
+      )}
+      {showAddTodoModal && (
+        <TodoFormModal
+          title="新增待辦事項"
+          submitLabel="新增"
+          submittingLabel="新增中…"
+          submitting={addingTodo}
+          form={addTodoForm}
+          setForm={setAddTodoForm}
+          groups={groups}
+          groupMembers={groupMembers}
+          onClose={() => setShowAddTodoModal(false)}
+          onSubmit={handleAddTodo}
+        />
+      )}
+      {editingTodo && (
+        <TodoFormModal
+          title="編輯待辦事項"
+          submitLabel="儲存"
+          submittingLabel="儲存中…"
+          submitting={savingTodoEdit}
+          form={editTodoForm}
+          setForm={setEditTodoForm}
+          groups={groups}
+          groupMembers={groupMembers}
+          onClose={() => setEditingTodo(null)}
+          onSubmit={handleSaveTodoEdit}
+        />
       )}
       {editingMeeting && (
         <div
@@ -2062,14 +1856,6 @@ const todoDeleteBtnStyle: CSSProperties = {
   lineHeight: 1,
 };
 
-const todoMetaStyle: CSSProperties = {
-  fontSize: "0.78rem",
-  color: THEME.textMuted,
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "0.2rem",
-};
-
 const modalLabelStyle: CSSProperties = {
   display: "block",
   fontSize: "0.78rem",
@@ -2088,27 +1874,6 @@ const modalFieldStyle: CSSProperties = {
   background: THEME.surfaceSubtle,
   color: THEME.text,
   boxSizing: "border-box",
-  cursor: "pointer",
-};
-
-const todoSelectStyle: CSSProperties = {
-  fontSize: "0.78rem",
-  color: THEME.textMuted,
-  background: "transparent",
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: "8px",
-  padding: "0.15rem 0.35rem",
-  cursor: "pointer",
-  maxWidth: "8rem",
-};
-
-const todoDateInputStyle: CSSProperties = {
-  fontSize: "0.78rem",
-  color: THEME.textMuted,
-  background: "transparent",
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: "8px",
-  padding: "0.15rem 0.35rem",
   cursor: "pointer",
 };
 
@@ -2373,7 +2138,7 @@ function MeetingCard({
                 marginTop: description || meetingUrl || driveFolderUrl || summary ? "0.2rem" : 0,
               }}
             >
-              建立者已設定只有自己可以編輯或取消此會議。
+             只有會議建立者可以編輯或取消此會議。
             </div>
           )}
         </div>
@@ -2382,49 +2147,258 @@ function MeetingCard({
   );
 }
 
+type TodoFormFields = {
+  text: string;
+  lineGroupId: string;
+  due: string;
+  assignees: number[];
+};
+
+function TodoFormModal({
+  title,
+  submitLabel,
+  submittingLabel,
+  submitting,
+  form,
+  setForm,
+  groups,
+  groupMembers,
+  onClose,
+  onSubmit,
+}: {
+  title: string;
+  submitLabel: string;
+  submittingLabel: string;
+  submitting: boolean;
+  form: TodoFormFields;
+  setForm: (updater: (prev: TodoFormFields) => TodoFormFields) => void;
+  groups: DashboardGroup[];
+  groupMembers: Record<string, TodoGroupMember[]>;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const memberPool = groupMembers[form.lineGroupId] ?? [];
+  const disabled = submitting || !form.text.trim() || !form.lineGroupId;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "rgba(0, 0, 0, 0.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 9999,
+        padding: "1rem",
+        touchAction: "none",
+        overscrollBehavior: "contain",
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      onTouchMove={(e) => e.preventDefault()}
+    >
+      <div
+        style={{
+          background: THEME.surface,
+          borderRadius: THEME.radiusPanel,
+          padding: "1.5rem",
+          width: "100%",
+          maxWidth: "420px",
+          boxShadow: THEME.shadowPanel,
+          display: "flex",
+          flexDirection: "column",
+          gap: "1rem",
+          maxHeight: "85vh",
+          overflowY: "auto",
+          overscrollBehavior: "contain",
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: THEME.text }}>
+            {title}
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              border: "none",
+              background: "transparent",
+              fontSize: "1.2rem",
+              color: THEME.textMuted,
+              cursor: "pointer",
+              padding: "0.2rem",
+              lineHeight: 1,
+            }}
+            aria-label="關閉"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <div>
+            <label style={modalLabelStyle}>待辦事項</label>
+            <input
+              type="text"
+              value={form.text}
+              onChange={(e) => setForm((p) => ({ ...p, text: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !disabled) onSubmit();
+              }}
+              placeholder="輸入待辦事項內容…"
+              autoFocus
+              style={modalFieldStyle}
+            />
+          </div>
+
+          <div>
+            <label style={modalLabelStyle}>群組</label>
+            <select
+              value={form.lineGroupId}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, lineGroupId: e.target.value, assignees: [] }))
+              }
+              style={modalFieldStyle}
+              aria-label="選擇群組"
+            >
+              <option value="">選擇群組</option>
+              {groups.map((g) => (
+                <option key={g.lineGroupId} value={g.lineGroupId}>
+                  {g.name?.trim() || "未命名群組"}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={modalLabelStyle}>截止日期</label>
+            <div style={{ position: "relative" }}>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={THEME.textMuted}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ position: "absolute", left: "0.65rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+              >
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+              <input
+                type="date"
+                value={form.due}
+                onChange={(e) => setForm((p) => ({ ...p, due: e.target.value }))}
+                style={{ ...modalFieldStyle, paddingLeft: "2.2rem" }}
+                aria-label="截止日期"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={modalLabelStyle}>指派成員</label>
+            <select
+              value=""
+              onChange={(e) => {
+                const uid = Number(e.target.value);
+                if (uid && !form.assignees.includes(uid)) {
+                  setForm((p) => ({ ...p, assignees: [...p.assignees, uid] }));
+                }
+              }}
+              style={modalFieldStyle}
+              aria-label="指派成員"
+              disabled={!form.lineGroupId}
+            >
+              <option value="">{form.lineGroupId ? "選擇成員" : "請先選擇群組"}</option>
+              {memberPool
+                .filter((m) => !form.assignees.includes(m.userId))
+                .map((m) => (
+                  <option key={m.userId} value={m.userId}>
+                    {m.displayName}
+                  </option>
+                ))}
+            </select>
+            {form.assignees.length > 0 && (
+              <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                {form.assignees.map((uid) => {
+                  const m = memberPool.find((x) => x.userId === uid);
+                  return (
+                    <span key={uid} style={assigneeChipStyle}>
+                      {m?.displayName ?? "?"}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setForm((p) => ({
+                            ...p,
+                            assignees: p.assignees.filter((id) => id !== uid),
+                          }))
+                        }
+                        style={assigneeChipRemoveStyle}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={disabled}
+          style={{
+            background: THEME.accent,
+            color: "#FFF",
+            border: "none",
+            borderRadius: "12px",
+            padding: "0.65rem",
+            fontSize: "0.9rem",
+            fontWeight: 700,
+            cursor: disabled ? "not-allowed" : "pointer",
+            opacity: disabled ? 0.5 : 1,
+            marginTop: "0.25rem",
+            transition: "opacity 0.15s",
+          }}
+        >
+          {submitting ? submittingLabel : submitLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TodoItemCard({
   todo,
   groups,
   groupColor,
-  members,
   onToggle,
   onDelete,
-  onUpdateDue,
-  onUpdateAssignees,
-  onUpdateText,
-  onUpdateGroup,
+  onOpenEdit,
 }: {
   todo: TodoItem;
   groups: DashboardGroup[];
   groupColor: string;
-  members: TodoGroupMember[];
   onToggle: () => void;
   onDelete: () => void;
-  onUpdateDue: (due: string) => void;
-  onUpdateAssignees: (userIds: number[]) => void;
-  onUpdateText: (text: string) => void;
-  onUpdateGroup: (lineGroupId: string) => void;
+  onOpenEdit: () => void;
 }) {
-  const [cardEditing, setCardEditing] = useState(false);
-  const [editingText, setEditingText] = useState(false);
-  const [editText, setEditText] = useState(todo.item);
-  const currentIds = todo.assignedUsers.map((u) => u.userId);
-
-  const groupName = groups.find((g) => g.lineGroupId === todo.lineGroupId)?.name?.trim() || "未命名群組";
-
-  function commitEdit() {
-    const trimmed = editText.trim();
-    setEditingText(false);
-    if (trimmed && trimmed !== todo.item) {
-      onUpdateText(trimmed);
-    } else {
-      setEditText(todo.item);
-    }
-  }
-
-  const dueDateDisplay = todo.due && /^\d{4}-\d{2}-\d{2}/.test(todo.due)
-    ? todo.due.slice(0, 10)
-    : "";
+  const groupName =
+    groups.find((g) => g.lineGroupId === todo.lineGroupId)?.name?.trim() ||
+    "未命名群組";
+  const dueDateDisplay =
+    todo.due && /^\d{4}-\d{2}-\d{2}/.test(todo.due) ? todo.due.slice(0, 10) : "";
 
   return (
     <article
@@ -2461,166 +2435,39 @@ function TodoItemCard({
       </button>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        {editingText ? (
-          <input
-            type="text"
-            value={editText}
-            onChange={(e) => setEditText(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitEdit();
-              if (e.key === "Escape") {
-                setEditText(todo.item);
-                setEditingText(false);
-              }
-            }}
-            autoFocus
-            style={{
-              fontWeight: 700,
-              fontSize: "0.9rem",
-              color: THEME.text,
-              border: `1px solid ${THEME.accent}`,
-              borderRadius: "6px",
-              padding: "0.15rem 0.35rem",
-              width: "100%",
-              marginBottom: "0.25rem",
-              outline: "none",
-            }}
-          />
-        ) : (
-          <div
-            onClick={() => {
-              if (!todo.isCompleted && cardEditing) {
-                setEditText(todo.item);
-                setEditingText(true);
-              }
-            }}
-            style={{
-              fontWeight: 700,
-              fontSize: "0.9rem",
-              color: todo.isCompleted ? THEME.textMuted : THEME.text,
-              textDecoration: todo.isCompleted ? "line-through" : "none",
-              marginBottom: "0.25rem",
-              cursor: !todo.isCompleted && cardEditing ? "pointer" : "default",
-            }}
-          >
-            {todo.item}
+        <div
+          style={{
+            fontWeight: 700,
+            fontSize: "0.9rem",
+            color: todo.isCompleted ? THEME.textMuted : THEME.text,
+            textDecoration: todo.isCompleted ? "line-through" : "none",
+            marginBottom: "0.25rem",
+          }}
+        >
+          {todo.item}
+        </div>
+
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.1rem" }}>
+          {dueDateDisplay && (
+            <span style={{ fontSize: "0.76rem", color: THEME.textMuted, display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+              {dueDateDisplay}
+            </span>
+          )}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+            <span style={{ ...groupPillDotStyle, background: groupColor }} />
+            <span style={{ fontSize: "0.72rem", color: THEME.textMuted }}>{groupName}</span>
+          </span>
+        </div>
+
+        {todo.assignedUsers.length > 0 && (
+          <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
+            {todo.assignedUsers.map((u) => (
+              <span key={u.userId} style={{ ...assigneeChipStyle, cursor: "default" }}>
+                {u.displayName}
+              </span>
+            ))}
           </div>
-        )}
-
-        {cardEditing ? (
-          <>
-            <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
-              <span style={todoMetaStyle}>
-                <input
-                  type="date"
-                  value={dueDateDisplay}
-                  onChange={(e) => onUpdateDue(e.target.value)}
-                  style={todoDateInputStyle}
-                  aria-label="截止日期"
-                />
-              </span>
-
-              <span style={todoMetaStyle}>
-                <select
-                  value=""
-                  onChange={(e) => {
-                    const uid = Number(e.target.value);
-                    if (uid && !currentIds.includes(uid)) {
-                      onUpdateAssignees([...currentIds, uid]);
-                    }
-                  }}
-                  style={todoSelectStyle}
-                  aria-label="指派成員"
-                >
-                  <option value="">
-                    {currentIds.length === 0 ? "指派成員" : "+ 成員"}
-                  </option>
-                  {members
-                    .filter((m) => !currentIds.includes(m.userId))
-                    .map((m) => (
-                      <option key={m.userId} value={m.userId}>
-                        {m.displayName}
-                      </option>
-                    ))}
-                </select>
-              </span>
-            </div>
-
-            {todo.assignedUsers.length > 0 && (
-              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
-                {todo.assignedUsers.map((u) => (
-                  <span key={u.userId} style={assigneeChipStyle}>
-                    {u.displayName}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdateAssignees(currentIds.filter((id) => id !== u.userId))
-                      }
-                      style={assigneeChipRemoveStyle}
-                    >
-                      ✕
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.3rem",
-                marginTop: "0.3rem",
-              }}
-            >
-              <span style={{ ...groupPillDotStyle, background: groupColor }} />
-              <select
-                value={todo.lineGroupId}
-                onChange={(e) => onUpdateGroup(e.target.value)}
-                style={{
-                  fontSize: "0.72rem",
-                  color: THEME.textMuted,
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                }}
-                aria-label="所屬群組"
-              >
-                {groups.map((g) => (
-                  <option key={g.lineGroupId} value={g.lineGroupId}>
-                    {g.name?.trim() || "未命名群組"}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.1rem" }}>
-              {dueDateDisplay && (
-                <span style={{ fontSize: "0.76rem", color: THEME.textMuted, display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                  {dueDateDisplay}
-                </span>
-              )}
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
-                <span style={{ ...groupPillDotStyle, background: groupColor }} />
-                <span style={{ fontSize: "0.72rem", color: THEME.textMuted }}>{groupName}</span>
-              </span>
-            </div>
-
-            {todo.assignedUsers.length > 0 && (
-              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
-                {todo.assignedUsers.map((u) => (
-                  <span key={u.userId} style={{ ...assigneeChipStyle, cursor: "default" }}>
-                    {u.displayName}
-                  </span>
-                ))}
-              </div>
-            )}
-          </>
         )}
       </div>
 
@@ -2628,12 +2475,12 @@ function TodoItemCard({
         {!todo.isCompleted && (
           <button
             type="button"
-            onClick={() => setCardEditing((v) => !v)}
-            aria-label={cardEditing ? "完成編輯" : "編輯待辦事項"}
+            onClick={onOpenEdit}
+            aria-label="編輯待辦事項"
             style={{
               border: "none",
-              background: cardEditing ? `rgba(${THEME.accentRgb}, 0.12)` : "transparent",
-              color: cardEditing ? THEME.accent : THEME.textMuted,
+              background: "transparent",
+              color: THEME.textMuted,
               cursor: "pointer",
               fontSize: "1.15rem",
               padding: "0.35rem 0.45rem",
