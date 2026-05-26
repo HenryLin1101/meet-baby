@@ -1,5 +1,6 @@
 import {
   listEventsByGroupIds,
+  listLatestCompletedSummariesByEventIds,
   listUserGroups,
   RepositoryError,
   upsertLineUser,
@@ -65,9 +66,17 @@ export async function GET(request: Request) {
       rangeEnd: range.rangeEnd,
     });
 
+    const summaryMap = await listLatestCompletedSummariesByEventIds(
+      events.map((event) => event.eventId)
+    );
+    const eventsWithSummary = events.map((event) => ({
+      ...event,
+      summary: summaryMap.get(event.eventId) ?? null,
+    }));
+
     return Response.json({
       groups,
-      events,
+      events: eventsWithSummary,
       range,
       currentLineUserId: verifiedUser.lineUserId,
     });

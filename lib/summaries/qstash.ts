@@ -107,3 +107,10 @@ export async function publishTactiqScanJob(input: {
   return { messageId, scheduledAt: scheduledAt.toISOString() };
 }
 
+export async function cancelTactiqScanJob(messageId: string): Promise<void> {
+  const trimmed = messageId.trim();
+  if (!trimmed) return;
+  const client = createQStashClient();
+  await client.messages.cancel(trimmed);
+}
+

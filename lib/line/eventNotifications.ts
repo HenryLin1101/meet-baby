@@ -87,6 +87,22 @@ export function buildMeetingCreatedMentionMessage(
   });
 }
 
+export function buildMeetingCancelledMessage(input: {
+  title: string;
+  startsAt: string | Date;
+  timezone?: string;
+  cancelledBy?: string | null;
+}) {
+  const lines = [
+    "【會議取消】",
+    `主題：${input.title}`,
+    `原時間：${formatMeetingDateTime(input.startsAt, input.timezone)}`,
+  ];
+  const cancelledBy = input.cancelledBy?.trim();
+  if (cancelledBy) lines.push(`取消者：${cancelledBy}`);
+  return { type: "text" as const, text: lines.join("\n") };
+}
+
 export function buildMeetingReminderMentionMessage(
   input: Omit<EventMentionMessageInput, "heading" | "prefixLine"> & {
     leadTimeMinutes?: number;

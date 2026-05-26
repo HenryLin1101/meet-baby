@@ -155,6 +155,74 @@ export async function createCalendarEventWithMeet(input: {
   return { calendarEventId, meetingUrl };
 }
 
+export async function deleteCalendarEvent(input: {
+  accessToken: string;
+  calendarEventId: string;
+}): Promise<void> {
+  const id = input.calendarEventId.trim();
+  if (!id) return;
+  const response = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${input.accessToken}` },
+      cache: "no-store",
+    }
+  );
+  // 410 Gone = already deleted; 404 = not found — both are fine for our cleanup intent.
+  if (!response.ok && response.status !== 404 && response.status !== 410) {
+    const json = (await response.json().catch(() => null)) as unknown;
+    throw new Error(formatGoogleApiError(response.status, json));
+  }
+}
+
+export async function updateCalendarEvent(input: {
+  accessToken: string;
+  calendarEventId: string;
+  title?: string;
+  startsAt?: string;
+  endsAt?: string | null;
+  location?: string | null;
+  description?: string | null;
+}): Promise<void> {
+  const id = input.calendarEventId.trim();
+  if (!id) return;
+
+  const body: Record<string, unknown> = {};
+  if (input.title !== undefined) body.summary = input.title;
+  if (input.location !== undefined) body.location = input.location ?? "";
+  if (input.description !== undefined) body.description = input.description ?? "";
+
+  if (input.startsAt !== undefined) {
+    const startsAtDate = new Date(input.startsAt);
+    if (Number.isNaN(startsAtDate.getTime())) {
+      throw new Error("startsAt 格式不正確。");
+    }
+    body.start = { dateTime: startsAtDate.toISOString(), timeZone: "Asia/Taipei" };
+    const endsAtDate = input.endsAt
+      ? new Date(input.endsAt)
+      : new Date(startsAtDate.getTime() + 60 * 60 * 1000);
+    body.end = { dateTime: endsAtDate.toISOString(), timeZone: "Asia/Taipei" };
+  } else if (input.endsAt !== undefined && input.endsAt !== null) {
+    const endsAtDate = new Date(input.endsAt);
+    if (!Number.isNaN(endsAtDate.getTime())) {
+      body.end = { dateTime: endsAtDate.toISOString(), timeZone: "Asia/Taipei" };
+    }
+  }
+
+  if (Object.keys(body).length === 0) return;
+
+  await googleFetchJson<CalendarEventResponse>(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(id)}`,
+    input.accessToken,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+}
+
 export async function createCalendarEventWithMeetByRefreshToken(input: {
   refreshToken: string;
   title: string;

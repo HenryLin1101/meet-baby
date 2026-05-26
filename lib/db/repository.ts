@@ -83,6 +83,7 @@ type ListedEventRow = {
   timezone: string;
   status: string;
   meeting_url: string | null;
+  drive_folder_id: string | null;
 };
 
 type ListedEventOwnerRow = {
@@ -159,6 +160,7 @@ export type ListedEvent = {
   status: string;
   ownerDisplayName: string;
   meetingUrl: string | null;
+  driveFolderId: string | null;
 };
 
 export type UserChatGroup = {
@@ -722,7 +724,7 @@ export async function listGroupEvents(
   const { data: events, error: eventError } = await supabase
     .from("events")
     .select(
-      "id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status, meeting_url"
+      "id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status, meeting_url, drive_folder_id"
     )
     .eq("group_id", group.id)
     .eq("status", "scheduled")
@@ -766,6 +768,8 @@ export async function listGroupEvents(
     ownerDisplayName:
       ownerMap.get(Number(row.created_by_user_id)) ?? "未知建立者",
     meetingUrl: row.meeting_url === null ? null : String(row.meeting_url),
+    driveFolderId:
+      row.drive_folder_id === null ? null : String(row.drive_folder_id),
   }));
 }
 
@@ -820,7 +824,7 @@ export async function listEventsByGroupIds(input: {
   let query = supabase
     .from("events")
     .select(
-      "id, group_id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status, meeting_url"
+      "id, group_id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status, meeting_url, drive_folder_id"
     )
     .in("group_id", groupIds)
     .eq("status", "scheduled")
@@ -876,6 +880,8 @@ export async function listEventsByGroupIds(input: {
         ownerDisplayName:
           ownerMap.get(Number(row.created_by_user_id)) ?? "未知建立者",
         meetingUrl: row.meeting_url === null ? null : String(row.meeting_url),
+        driveFolderId:
+          row.drive_folder_id === null ? null : String(row.drive_folder_id),
       } satisfies ListedEventWithGroup;
     })
     .filter((x): x is ListedEventWithGroup => Boolean(x));
@@ -2017,3 +2023,235 @@ export async function setEventDriveFolderId(
     .eq("id", normalizedEventId);
   assertNoError(error, "更新活動 Drive 資料夾 ID 失敗。");
 }
+
+export type MutableEventContext = {
+  eventId: number;
+  groupId: number;
+  lineGroupId: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  startsAt: string;
+  timezone: string;
+  status: string;
+  reminderMessageId: string | null;
+  reminderLeadTimeMinutes: number;
+  autoSummaryMessageId: string | null;
+  calendarEventId: string | null;
+  meetingUrl: string | null;
+  creatorLineUserId: string;
+};
+
+type MutableEventRow = {
+  id: number;
+  group_id: number;
+  created_by_user_id: number;
+  title: string;
+  description: string | null;
+  location: string | null;
+  starts_at: string;
+  timezone: string;
+  status: string;
+  reminder_message_id: string | null;
+  reminder_lead_time_minutes: number | null;
+  auto_summary_qstash_message_id: string | null;
+  calendar_event_id: string | null;
+  meeting_url: string | null;
+};
+
+/** 取得事件變更（取消／編輯）所需的所有 metadata，並驗證 requester 是事件所屬群組的有效成員。 */
+async function loadMutableEventForUser(
+  eventId: number,
+  requesterLineUserId: string
+): Promise<MutableEventContext> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
+
+  const { data: eventRow, error: eventError } = await supabase
+    .from("events")
+    .select(
+      "id, group_id, created_by_user_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_lead_time_minutes, auto_summary_qstash_message_id, calendar_event_id, meeting_url"
+    )
+    .eq("id", normalizedEventId)
+    .maybeSingle<MutableEventRow>();
+  assertNoError(eventError, "讀取活動失敗。");
+  if (!eventRow) {
+    throw new RepositoryError("找不到活動。", 404, "EVENT_NOT_FOUND");
+  }
+
+  const requester = await getLineUserByLineUserId(requesterLineUserId);
+  if (!requester) {
+    throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
+  }
+
+  const membership = await getActiveMembership(Number(eventRow.group_id), Number(requester.id));
+  if (!membership) {
+    throw new RepositoryError("你不是此群組的有效成員。", 403, "FORBIDDEN");
+  }
+
+  const { data: group, error: groupError } = await supabase
+    .from("chat_groups")
+    .select("id, line_group_id")
+    .eq("id", Number(eventRow.group_id))
+    .maybeSingle<{ id: number; line_group_id: string }>();
+  assertNoError(groupError, "讀取群組資料失敗。");
+  if (!group) {
+    throw new RepositoryError("群組資料不存在。", 404, "GROUP_NOT_FOUND");
+  }
+
+  const { data: creator, error: creatorError } = await supabase
+    .from("line_users")
+    .select("line_user_id")
+    .eq("id", Number(eventRow.created_by_user_id))
+    .maybeSingle<{ line_user_id: string }>();
+  assertNoError(creatorError, "讀取活動建立者資料失敗。");
+
+  return {
+    eventId: Number(eventRow.id),
+    groupId: Number(eventRow.group_id),
+    lineGroupId: String(group.line_group_id),
+    title: String(eventRow.title),
+    description: eventRow.description === null ? null : String(eventRow.description),
+    location: eventRow.location === null ? null : String(eventRow.location),
+    startsAt: new Date(eventRow.starts_at).toISOString(),
+    timezone: String(eventRow.timezone),
+    status: String(eventRow.status),
+    reminderMessageId:
+      eventRow.reminder_message_id === null ? null : String(eventRow.reminder_message_id),
+    reminderLeadTimeMinutes: Number(eventRow.reminder_lead_time_minutes) || 5,
+    autoSummaryMessageId:
+      eventRow.auto_summary_qstash_message_id === null
+        ? null
+        : String(eventRow.auto_summary_qstash_message_id),
+    calendarEventId:
+      eventRow.calendar_event_id === null ? null : String(eventRow.calendar_event_id),
+    meetingUrl: eventRow.meeting_url === null ? null : String(eventRow.meeting_url),
+    creatorLineUserId: creator?.line_user_id ? String(creator.line_user_id) : "",
+  };
+}
+
+/** 取消活動：把 status 設為 'cancelled'，並清掉已排程的訊息 ID。回傳變更前的 metadata 供外部清理副作用使用。 */
+/** 取得每個 event 最新一筆 status='completed' 的摘要文字（給 dashboard 顯示用）。 */
+export async function listLatestCompletedSummariesByEventIds(
+  eventIds: number[]
+): Promise<Map<number, string>> {
+  if (eventIds.length === 0) return new Map();
+  const supabase = getSupabaseAdmin();
+  const normalized = [...new Set(eventIds.map(Number))].filter(Number.isFinite);
+  if (normalized.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from("event_summaries")
+    .select("event_id, summary_text, completed_at")
+    .in("event_id", normalized)
+    .eq("status", "completed")
+    .not("summary_text", "is", null)
+    .order("completed_at", { ascending: false });
+  assertNoError(error, "讀取會議摘要失敗。");
+
+  const map = new Map<number, string>();
+  for (const row of (data ?? []) as Array<{
+    event_id: number;
+    summary_text: string | null;
+  }>) {
+    const eventId = Number(row.event_id);
+    if (!Number.isFinite(eventId)) continue;
+    if (map.has(eventId)) continue; // already have the latest (sorted desc)
+    if (!row.summary_text) continue;
+    map.set(eventId, String(row.summary_text));
+  }
+  return map;
+}
+
+export async function cancelEventForUser(input: {
+  eventId: number;
+  requesterLineUserId: string;
+}): Promise<MutableEventContext> {
+  const context = await loadMutableEventForUser(input.eventId, input.requesterLineUserId);
+  if (context.status === "cancelled") {
+    return context;
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase
+    .from("events")
+    .update({
+      status: "cancelled",
+      reminder_message_id: null,
+      reminder_scheduled_at: null,
+      auto_summary_qstash_message_id: null,
+      auto_summary_scheduled_at: null,
+    })
+    .eq("id", context.eventId);
+  assertNoError(error, "取消活動失敗。");
+
+  return context;
+}
+
+export type EventUpdatableFields = {
+  title?: string;
+  startsAt?: string;
+  location?: string | null;
+  description?: string | null;
+};
+
+export type UpdatedEventResult = {
+  previous: MutableEventContext;
+  next: MutableEventContext;
+  timeChanged: boolean;
+};
+
+/** 編輯活動（限 title / startsAt / location / description）。回傳變更前後的 metadata 與時間是否變動。 */
+export async function updateEventForUser(input: {
+  eventId: number;
+  requesterLineUserId: string;
+  fields: EventUpdatableFields;
+}): Promise<UpdatedEventResult> {
+  const previous = await loadMutableEventForUser(input.eventId, input.requesterLineUserId);
+  if (previous.status === "cancelled") {
+    throw new RepositoryError("已取消的活動無法修改。", 400, "INVALID_STATE");
+  }
+
+  const patch: Record<string, unknown> = {};
+  let timeChanged = false;
+
+  if (input.fields.title !== undefined) {
+    const trimmed = input.fields.title.trim();
+    if (!trimmed) {
+      throw new RepositoryError("會議主題不可為空。", 400, "INVALID_INPUT");
+    }
+    patch.title = trimmed;
+  }
+  if (input.fields.startsAt !== undefined) {
+    const date = new Date(input.fields.startsAt);
+    if (Number.isNaN(date.getTime())) {
+      throw new RepositoryError("startsAt 格式不正確。", 400, "INVALID_INPUT");
+    }
+    const nextIso = date.toISOString();
+    if (nextIso !== previous.startsAt) {
+      patch.starts_at = nextIso;
+      timeChanged = true;
+    }
+  }
+  if (input.fields.location !== undefined) {
+    patch.location = input.fields.location?.trim() ? input.fields.location.trim() : null;
+  }
+  if (input.fields.description !== undefined) {
+    patch.description = input.fields.description?.trim() ? input.fields.description.trim() : null;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return { previous, next: previous, timeChanged: false };
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase
+    .from("events")
+    .update(patch)
+    .eq("id", previous.eventId);
+  assertNoError(error, "更新活動失敗。");
+
+  const next = await loadMutableEventForUser(input.eventId, input.requesterLineUserId);
+  return { previous, next, timeChanged };
+}
+

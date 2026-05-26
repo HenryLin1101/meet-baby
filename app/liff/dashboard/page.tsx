@@ -54,6 +54,7 @@ type DashboardGroup = {
 
 type MeetingItem = {
   id: string;
+  eventId: number;
   title: string;
   date: string;
   time: string;
@@ -64,8 +65,11 @@ type MeetingItem = {
   groupPictureUrl: string | null;
   groupColor: string;
   startsAtIso: string;
+  timezone: string;
   description: string | null;
   meetingUrl: string | null;
+  driveFolderUrl: string | null;
+  summary: string | null;
 };
 
 type DashboardEvent = {
@@ -80,6 +84,8 @@ type DashboardEvent = {
   status: string;
   ownerDisplayName: string;
   meetingUrl: string | null;
+  driveFolderId: string | null;
+  summary: string | null;
 };
 
 type TodoItem = {
@@ -142,6 +148,24 @@ export default function DashboardLiffPage() {
   const [expandedMeetingIds, setExpandedMeetingIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [editingMeeting, setEditingMeeting] = useState<MeetingItem | null>(null);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    date: "",
+    time: "",
+    location: "",
+    description: "",
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string>("");
+  const [cancellingMeetingId, setCancellingMeetingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (editingMeeting) {
+      document.body.style.overflow = "hidden";
+      return () => { document.body.style.overflow = ""; };
+    }
+  }, [editingMeeting]);
 
   function toggleMeetingExpanded(id: string) {
     setExpandedMeetingIds((prev) => {
@@ -150,6 +174,114 @@ export default function DashboardLiffPage() {
       else next.add(id);
       return next;
     });
+  }
+
+  function openEditModal(meeting: MeetingItem) {
+    setEditingMeeting(meeting);
+    setEditError("");
+    setEditForm({
+      title: meeting.title,
+      date: meeting.date,
+      time: meeting.time,
+      location: meeting.location === "未提供地點" ? "" : meeting.location,
+      description: meeting.description ?? "",
+    });
+  }
+
+  async function handleSaveEdit() {
+    if (!editingMeeting || !lineAccessToken) return;
+    const title = editForm.title.trim();
+    if (!title) {
+      setEditError("會議主題不可為空。");
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(editForm.date)) {
+      setEditError("日期格式不正確。");
+      return;
+    }
+    if (!/^\d{2}:\d{2}$/.test(editForm.time)) {
+      setEditError("時間格式不正確。");
+      return;
+    }
+    setSavingEdit(true);
+    setEditError("");
+    try {
+      const res = await fetch(`/api/events/${editingMeeting.eventId}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${lineAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title,
+          date: editForm.date,
+          time: editForm.time,
+          location: editForm.location.trim() || null,
+          description: editForm.description.trim() || null,
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        setEditError(data?.error ?? "更新失敗。");
+        return;
+      }
+      const data = (await res.json()) as {
+        title: string;
+        startsAt: string;
+        location: string | null;
+        description: string | null;
+        meetingUrl: string | null;
+        timezone: string;
+      };
+      const meetingId = editingMeeting.id;
+      const startsAt = new Date(data.startsAt);
+      setMeetings((prev) =>
+        prev.map((m) =>
+          m.id === meetingId
+            ? {
+                ...m,
+                title: data.title,
+                startsAtIso: startsAt.toISOString(),
+                date: formatDateKeyInTimeZone(startsAt, data.timezone),
+                time: formatTimeLabelInTimeZone(startsAt, data.timezone),
+                location: data.location?.trim() || "未提供地點",
+                description: data.description?.trim() ? data.description : null,
+                meetingUrl: data.meetingUrl?.trim() ? data.meetingUrl : null,
+                timezone: data.timezone,
+              }
+            : m
+        )
+      );
+      setEditingMeeting(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "更新失敗。");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function handleCancelMeeting(meeting: MeetingItem) {
+    if (!lineAccessToken) return;
+    const ok = window.confirm(`確定要取消「${meeting.title}」這場會議嗎？此動作會通知群組。`);
+    if (!ok) return;
+    setCancellingMeetingId(meeting.id);
+    try {
+      const res = await fetch(`/api/events/${meeting.eventId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${lineAccessToken}` },
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        window.alert(data?.error ?? "取消失敗。");
+        return;
+      }
+      const cancelledId = meeting.id;
+      setMeetings((prev) => prev.filter((m) => m.id !== cancelledId));
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "取消失敗。");
+    } finally {
+      setCancellingMeetingId(null);
+    }
   }
 
   useEffect(() => {
@@ -798,6 +930,9 @@ export default function DashboardLiffPage() {
                       meeting={meeting}
                       expanded={expandedMeetingIds.has(meeting.id)}
                       onToggle={() => toggleMeetingExpanded(meeting.id)}
+                      onEdit={() => openEditModal(meeting)}
+                      onCancel={() => handleCancelMeeting(meeting)}
+                      cancelling={cancellingMeetingId === meeting.id}
                       showDate={false}
                     />
                   ))}
@@ -817,6 +952,9 @@ export default function DashboardLiffPage() {
                     meeting={meeting}
                     expanded={expandedMeetingIds.has(meeting.id)}
                     onToggle={() => toggleMeetingExpanded(meeting.id)}
+                    onEdit={() => openEditModal(meeting)}
+                    onCancel={() => handleCancelMeeting(meeting)}
+                    cancelling={cancellingMeetingId === meeting.id}
                     showDate
                   />
                 ))}
@@ -1129,6 +1267,158 @@ export default function DashboardLiffPage() {
 
     </main>
       )}
+      {editingMeeting && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0, 0, 0, 0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "1rem",
+            touchAction: "none",
+            overscrollBehavior: "contain",
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setEditingMeeting(null);
+          }}
+          onTouchMove={(e) => e.preventDefault()}
+        >
+          <div
+            style={{
+              background: THEME.surface,
+              borderRadius: THEME.radiusPanel,
+              padding: "1.5rem",
+              width: "100%",
+              maxWidth: "420px",
+              boxShadow: THEME.shadowPanel,
+              display: "flex",
+              flexDirection: "column",
+              gap: "1rem",
+              maxHeight: "85vh",
+              overflowY: "auto",
+              overscrollBehavior: "contain",
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: THEME.text }}>
+                編輯會議
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingMeeting(null)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  fontSize: "1.2rem",
+                  color: THEME.textMuted,
+                  cursor: "pointer",
+                  padding: "0.2rem",
+                  lineHeight: 1,
+                }}
+                aria-label="關閉"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <div>
+                <label style={modalLabelStyle}>會議主題</label>
+                <input
+                  type="text"
+                  value={editForm.title}
+                  onChange={(e) => setEditForm((p) => ({ ...p, title: e.target.value }))}
+                  style={modalFieldStyle}
+                />
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <div style={{ flex: 1 }}>
+                  <label style={modalLabelStyle}>日期</label>
+                  <input
+                    type="date"
+                    value={editForm.date}
+                    onChange={(e) => setEditForm((p) => ({ ...p, date: e.target.value }))}
+                    style={modalFieldStyle}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={modalLabelStyle}>時間</label>
+                  <input
+                    type="time"
+                    value={editForm.time}
+                    onChange={(e) => setEditForm((p) => ({ ...p, time: e.target.value }))}
+                    style={modalFieldStyle}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={modalLabelStyle}>地點</label>
+                <input
+                  type="text"
+                  value={editForm.location}
+                  onChange={(e) => setEditForm((p) => ({ ...p, location: e.target.value }))}
+                  placeholder="（選填）"
+                  style={modalFieldStyle}
+                />
+              </div>
+              <div>
+                <label style={modalLabelStyle}>備註</label>
+                <textarea
+                  value={editForm.description}
+                  onChange={(e) => setEditForm((p) => ({ ...p, description: e.target.value }))}
+                  placeholder="（選填）"
+                  rows={3}
+                  style={{ ...modalFieldStyle, fontFamily: "inherit", resize: "vertical" }}
+                />
+              </div>
+            </div>
+
+            {editError && (
+              <div
+                style={{
+                  fontSize: "0.82rem",
+                  color: THEME.errorText,
+                  background: THEME.errorBg,
+                  border: `1px solid ${THEME.errorBorder}`,
+                  borderRadius: "10px",
+                  padding: "0.45rem 0.65rem",
+                }}
+              >
+                {editError}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleSaveEdit}
+              disabled={savingEdit}
+              style={{
+                background: THEME.accent,
+                color: "#FFF",
+                border: "none",
+                borderRadius: "12px",
+                padding: "0.65rem",
+                fontSize: "0.9rem",
+                fontWeight: 700,
+                cursor: savingEdit ? "not-allowed" : "pointer",
+                opacity: savingEdit ? 0.5 : 1,
+                marginTop: "0.25rem",
+                transition: "opacity 0.15s",
+              }}
+            >
+              {savingEdit ? "儲存中…" : "儲存變更"}
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1235,6 +1525,7 @@ function mapEventToMeetingItem(
   const groupName = group.name?.trim() || "未命名群組";
   return {
     id: `${event.lineGroupId}-${event.eventId}`,
+    eventId: event.eventId,
     title: event.title,
     date: formatDateKeyInTimeZone(startsAt, event.timezone),
     time: formatTimeLabelInTimeZone(startsAt, event.timezone),
@@ -1245,8 +1536,13 @@ function mapEventToMeetingItem(
     groupPictureUrl: group.pictureUrl,
     groupColor: resolveGroupColor(event.lineGroupId),
     startsAtIso: startsAt.toISOString(),
+    timezone: event.timezone,
     description: event.description?.trim() ? event.description : null,
     meetingUrl: event.meetingUrl?.trim() ? event.meetingUrl : null,
+    driveFolderUrl: event.driveFolderId?.trim()
+      ? `https://drive.google.com/drive/folders/${event.driveFolderId.trim()}`
+      : null,
+    summary: event.summary?.trim() ? event.summary : null,
   };
 }
 
@@ -1585,6 +1881,29 @@ const meetingCompactMetaStyle: CSSProperties = {
   lineHeight: 1.35,
 };
 
+const meetingActionButtonStyle: CSSProperties = {
+  flex: 1,
+  fontSize: "0.82rem",
+  fontWeight: 600,
+  padding: "0.4rem 0.5rem",
+  borderRadius: "10px",
+  border: `1px solid ${THEME.surfaceBorder}`,
+  background: THEME.surfaceSubtle,
+  color: THEME.text,
+  cursor: "pointer",
+};
+
+const meetingLinkStyle: CSSProperties = {
+  fontSize: "0.82rem",
+  color: THEME.accent,
+  textDecoration: "none",
+  fontWeight: 600,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.3rem",
+  wordBreak: "break-all",
+};
+
 const emptyStyle: CSSProperties = {
   margin: 0,
   color: THEME.textMuted,
@@ -1748,26 +2067,35 @@ function MeetingCard({
   meeting,
   expanded,
   onToggle,
+  onEdit,
+  onCancel,
+  cancelling,
   showDate,
 }: {
   meeting: MeetingItem;
   expanded: boolean;
   onToggle: () => void;
+  onEdit: () => void;
+  onCancel: () => void;
+  cancelling: boolean;
   showDate: boolean;
 }) {
   const locationText = meeting.location?.trim() ?? "";
   const hasLocation = Boolean(locationText) && locationText !== "未提供地點";
   const description = meeting.description?.trim() ?? "";
   const meetingUrl = meeting.meetingUrl?.trim() ?? "";
-  const hasExpandable = Boolean(description) || Boolean(meetingUrl);
+  const driveFolderUrl = meeting.driveFolderUrl?.trim() ?? "";
+  const summary = meeting.summary?.trim() ?? "";
+  // Cards are always expandable now (action buttons live inside the fold).
+  const hasExpandable = true;
 
   return (
     <article
       style={{
         ...meetingCardCompactStyle,
-        cursor: hasExpandable ? "pointer" : "default",
+        cursor: "pointer",
       }}
-      onClick={hasExpandable ? onToggle : undefined}
+      onClick={onToggle}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -1806,7 +2134,7 @@ function MeetingCard({
         )}
       </div>
 
-      {hasExpandable && expanded && (
+      {expanded && (
         <div
           style={{
             marginTop: "0.55rem",
@@ -1814,7 +2142,7 @@ function MeetingCard({
             borderTop: `1px solid ${THEME.surfaceBorder}`,
             display: "flex",
             flexDirection: "column",
-            gap: "0.45rem",
+            gap: "0.55rem",
           }}
         >
           {description && (
@@ -1830,39 +2158,138 @@ function MeetingCard({
               {description}
             </div>
           )}
-          {meetingUrl && (
-            <a
-              href={meetingUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+          {(meetingUrl || driveFolderUrl) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.55rem 1rem" }}>
+              {meetingUrl && (
+                <a
+                  href={meetingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  style={meetingLinkStyle}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                  </svg>
+                  加入會議
+                </a>
+              )}
+              {driveFolderUrl && (
+                <a
+                  href={driveFolderUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  style={meetingLinkStyle}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                  會議資料夾
+                </a>
+              )}
+            </div>
+          )}
+          {summary && (
+            <div>
+              <div
+                style={{
+                  fontSize: "0.78rem",
+                  fontWeight: 700,
+                  color: THEME.textMuted,
+                  marginBottom: "0.3rem",
+                  letterSpacing: "0.02em",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.3rem",
+                }}
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <line x1="10" y1="9" x2="8" y2="9" />
+                </svg>
+                會議摘要
+              </div>
+              <div
+                style={{
+                  fontSize: "0.82rem",
+                  color: THEME.text,
+                  lineHeight: 1.55,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  maxHeight: "16rem",
+                  overflowY: "auto",
+                  background: THEME.surfaceSubtle,
+                  border: `1px solid ${THEME.surfaceBorder}`,
+                  borderRadius: "10px",
+                  padding: "0.55rem 0.7rem",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {summary}
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: "0.4rem", marginTop: description || meetingUrl || driveFolderUrl || summary ? "0.2rem" : 0 }}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit();
+              }}
+              disabled={cancelling}
+              style={meetingActionButtonStyle}
+            >
+              編輯
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCancel();
+              }}
+              disabled={cancelling}
               style={{
-                fontSize: "0.82rem",
-                color: THEME.accent,
-                textDecoration: "none",
-                fontWeight: 600,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.3rem",
-                wordBreak: "break-all",
+                ...meetingActionButtonStyle,
+                color: THEME.errorText,
+                borderColor: THEME.errorBorder,
+                background: THEME.errorBg,
               }}
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-              加入會議
-            </a>
-          )}
+              {cancelling ? "取消中…" : "取消會議"}
+            </button>
+          </div>
         </div>
       )}
     </article>
