@@ -58,6 +58,7 @@ type CreateEventRequestBody = {
   wantsMeetingLink?: boolean;
   reminderLeadTimeMinutes?: number;
   recurrence?: RecurrenceInput;
+  allowOthersToModify?: boolean;
 };
 
 function errorResponse(message: string, status: number) {
@@ -123,6 +124,8 @@ function parseBody(body: CreateEventRequestBody) {
     wantsMeetingLink: body.wantsMeetingLink !== false,
     reminderLeadTimeMinutes,
     recurrence,
+    // Default true; only pass false through when the client explicitly opts out.
+    allowOthersToModify: body.allowOthersToModify !== false,
   };
 }
 
@@ -170,6 +173,7 @@ async function createSingleEvent(
     attendeeUserIds: input.attendeeUserIds,
     timezone: "Asia/Taipei",
     reminderLeadTimeMinutes: input.reminderLeadTimeMinutes,
+    allowOthersToModify: input.allowOthersToModify,
   });
 
   let meetingUrl: string | null = null;

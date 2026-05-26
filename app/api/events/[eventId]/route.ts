@@ -44,6 +44,7 @@ type PatchBody = {
   time?: string;
   location?: string | null;
   description?: string | null;
+  allowOthersToModify?: boolean;
 };
 
 function toTaipeiIso(date: string, time: string): string {
@@ -166,11 +167,15 @@ export async function PATCH(
       startsAt?: string;
       location?: string | null;
       description?: string | null;
+      allowOthersToModify?: boolean;
     } = {};
 
     if (body.title !== undefined) fields.title = body.title;
     if (body.location !== undefined) fields.location = body.location;
     if (body.description !== undefined) fields.description = body.description;
+    if (body.allowOthersToModify !== undefined) {
+      fields.allowOthersToModify = Boolean(body.allowOthersToModify);
+    }
 
     if (body.date !== undefined || body.time !== undefined) {
       if (!body.date || !body.time) {
@@ -272,6 +277,8 @@ export async function PATCH(
       description: next.description,
       meetingUrl: next.meetingUrl,
       timezone: next.timezone,
+      allowOthersToModify: next.allowOthersToModify,
+      isOwner: next.requesterIsCreator,
     });
   } catch (error) {
     if (error instanceof LineAuthError) return errorResponse(error.message, error.status);

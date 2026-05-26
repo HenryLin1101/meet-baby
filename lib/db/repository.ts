@@ -84,6 +84,7 @@ type ListedEventRow = {
   status: string;
   meeting_url: string | null;
   drive_folder_id: string | null;
+  allow_others_to_modify: boolean | null;
 };
 
 type ListedEventOwnerRow = {
@@ -133,6 +134,8 @@ export type CreateEventWithAttendeesInput = {
   timezone?: string;
   attendeeUserIds: number[];
   reminderLeadTimeMinutes?: number;
+  /** Defaults to true. Pass false to restrict edit/cancel to the creator. */
+  allowOthersToModify?: boolean;
 };
 
 export type CreatedEvent = {
@@ -159,8 +162,10 @@ export type ListedEvent = {
   timezone: string;
   status: string;
   ownerDisplayName: string;
+  ownerLineUserId: string | null;
   meetingUrl: string | null;
   driveFolderId: string | null;
+  allowOthersToModify: boolean;
 };
 
 export type UserChatGroup = {
@@ -724,7 +729,7 @@ export async function listGroupEvents(
   const { data: events, error: eventError } = await supabase
     .from("events")
     .select(
-      "id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status, meeting_url, drive_folder_id"
+      "id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status, meeting_url, drive_folder_id, allow_others_to_modify"
     )
     .eq("group_id", group.id)
     .eq("status", "scheduled")
@@ -744,33 +749,42 @@ export async function listGroupEvents(
 
   const { data: owners, error: ownerError } = await supabase
     .from("line_users")
-    .select("id, display_name")
+    .select("id, display_name, line_user_id")
     .in("id", ownerIds);
 
   assertNoError(ownerError, "讀取活動建立者資料失敗。");
 
+  const groupOwnerRows = (owners ?? []) as Array<{
+    id: number;
+    display_name: string;
+    line_user_id: string;
+  }>;
   const ownerMap = new Map<number, string>(
-    ((owners ?? []) as ListedEventOwnerRow[]).map((owner) => [
-      Number(owner.id),
-      String(owner.display_name),
-    ])
+    groupOwnerRows.map((owner) => [Number(owner.id), String(owner.display_name)])
+  );
+  const groupOwnerLineUserIdMap = new Map<number, string>(
+    groupOwnerRows.map((owner) => [Number(owner.id), String(owner.line_user_id)])
   );
 
-  return rows.map((row) => ({
-    eventId: Number(row.id),
-    title: String(row.title),
-    description: row.description === null ? null : String(row.description),
-    location: row.location === null ? null : String(row.location),
-    startsAt: new Date(row.starts_at).toISOString(),
-    endsAt: row.ends_at === null ? null : new Date(row.ends_at).toISOString(),
-    timezone: String(row.timezone),
-    status: String(row.status),
-    ownerDisplayName:
-      ownerMap.get(Number(row.created_by_user_id)) ?? "未知建立者",
-    meetingUrl: row.meeting_url === null ? null : String(row.meeting_url),
-    driveFolderId:
-      row.drive_folder_id === null ? null : String(row.drive_folder_id),
-  }));
+  return rows.map((row) => {
+    const ownerInternalId = Number(row.created_by_user_id);
+    return {
+      eventId: Number(row.id),
+      title: String(row.title),
+      description: row.description === null ? null : String(row.description),
+      location: row.location === null ? null : String(row.location),
+      startsAt: new Date(row.starts_at).toISOString(),
+      endsAt: row.ends_at === null ? null : new Date(row.ends_at).toISOString(),
+      timezone: String(row.timezone),
+      status: String(row.status),
+      ownerDisplayName: ownerMap.get(ownerInternalId) ?? "未知建立者",
+      ownerLineUserId: groupOwnerLineUserIdMap.get(ownerInternalId) ?? null,
+      meetingUrl: row.meeting_url === null ? null : String(row.meeting_url),
+      driveFolderId:
+        row.drive_folder_id === null ? null : String(row.drive_folder_id),
+      allowOthersToModify: row.allow_others_to_modify !== false,
+    };
+  });
 }
 
 export async function listUserGroups(lineUserId: string): Promise<UserChatGroup[]> {
@@ -824,7 +838,7 @@ export async function listEventsByGroupIds(input: {
   let query = supabase
     .from("events")
     .select(
-      "id, group_id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status, meeting_url, drive_folder_id"
+      "id, group_id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status, meeting_url, drive_folder_id, allow_others_to_modify"
     )
     .in("group_id", groupIds)
     .eq("status", "scheduled")
@@ -851,15 +865,20 @@ export async function listEventsByGroupIds(input: {
   );
   const { data: owners, error: ownerError } = await supabase
     .from("line_users")
-    .select("id, display_name")
+    .select("id, display_name, line_user_id")
     .in("id", ownerIds);
   assertNoError(ownerError, "讀取活動建立者資料失敗。");
 
+  const ownerRows = (owners ?? []) as Array<{
+    id: number;
+    display_name: string;
+    line_user_id: string;
+  }>;
   const ownerMap = new Map<number, string>(
-    ((owners ?? []) as ListedEventOwnerRow[]).map((owner) => [
-      Number(owner.id),
-      String(owner.display_name),
-    ])
+    ownerRows.map((owner) => [Number(owner.id), String(owner.display_name)])
+  );
+  const ownerLineUserIdMap = new Map<number, string>(
+    ownerRows.map((owner) => [Number(owner.id), String(owner.line_user_id)])
   );
 
   return rows
@@ -867,6 +886,7 @@ export async function listEventsByGroupIds(input: {
       const groupId = Number((row as { group_id?: unknown }).group_id);
       const lineGroupId = groupLineIdById.get(groupId);
       if (!lineGroupId) return null;
+      const ownerInternalId = Number(row.created_by_user_id);
       return {
         lineGroupId,
         eventId: Number(row.id),
@@ -877,11 +897,12 @@ export async function listEventsByGroupIds(input: {
         endsAt: row.ends_at === null ? null : new Date(row.ends_at).toISOString(),
         timezone: String(row.timezone),
         status: String(row.status),
-        ownerDisplayName:
-          ownerMap.get(Number(row.created_by_user_id)) ?? "未知建立者",
+        ownerDisplayName: ownerMap.get(ownerInternalId) ?? "未知建立者",
+        ownerLineUserId: ownerLineUserIdMap.get(ownerInternalId) ?? null,
         meetingUrl: row.meeting_url === null ? null : String(row.meeting_url),
         driveFolderId:
           row.drive_folder_id === null ? null : String(row.drive_folder_id),
+        allowOthersToModify: row.allow_others_to_modify !== false,
       } satisfies ListedEventWithGroup;
     })
     .filter((x): x is ListedEventWithGroup => Boolean(x));
@@ -1096,6 +1117,15 @@ export async function createEventWithAttendees(
 
   if (!data) {
     throw new RepositoryError("建立活動失敗。", 500, "DB_ERROR");
+  }
+
+  // Default is TRUE in DB; only persist when the caller explicitly opts out.
+  if (input.allowOthersToModify === false) {
+    const { error: flagError } = await supabase
+      .from("events")
+      .update({ allow_others_to_modify: false })
+      .eq("id", Number(data.event_id));
+    assertNoError(flagError, "更新活動權限設定失敗。");
   }
 
   return toCreatedEvent(data);
@@ -2040,6 +2070,9 @@ export type MutableEventContext = {
   calendarEventId: string | null;
   meetingUrl: string | null;
   creatorLineUserId: string;
+  allowOthersToModify: boolean;
+  /** True when the requester is the event creator. */
+  requesterIsCreator: boolean;
 };
 
 type MutableEventRow = {
@@ -2057,6 +2090,7 @@ type MutableEventRow = {
   auto_summary_qstash_message_id: string | null;
   calendar_event_id: string | null;
   meeting_url: string | null;
+  allow_others_to_modify: boolean | null;
 };
 
 /** 取得事件變更（取消／編輯）所需的所有 metadata，並驗證 requester 是事件所屬群組的有效成員。 */
@@ -2070,7 +2104,7 @@ async function loadMutableEventForUser(
   const { data: eventRow, error: eventError } = await supabase
     .from("events")
     .select(
-      "id, group_id, created_by_user_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_lead_time_minutes, auto_summary_qstash_message_id, calendar_event_id, meeting_url"
+      "id, group_id, created_by_user_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_lead_time_minutes, auto_summary_qstash_message_id, calendar_event_id, meeting_url, allow_others_to_modify"
     )
     .eq("id", normalizedEventId)
     .maybeSingle<MutableEventRow>();
@@ -2106,6 +2140,16 @@ async function loadMutableEventForUser(
     .maybeSingle<{ line_user_id: string }>();
   assertNoError(creatorError, "讀取活動建立者資料失敗。");
 
+  const allowOthersToModify = eventRow.allow_others_to_modify !== false; // null/undefined → true
+  const requesterIsCreator = Number(requester.id) === Number(eventRow.created_by_user_id);
+  if (!requesterIsCreator && !allowOthersToModify) {
+    throw new RepositoryError(
+      "只有會議建立者可以編輯或取消這場會議。",
+      403,
+      "FORBIDDEN"
+    );
+  }
+
   return {
     eventId: Number(eventRow.id),
     groupId: Number(eventRow.group_id),
@@ -2127,6 +2171,8 @@ async function loadMutableEventForUser(
       eventRow.calendar_event_id === null ? null : String(eventRow.calendar_event_id),
     meetingUrl: eventRow.meeting_url === null ? null : String(eventRow.meeting_url),
     creatorLineUserId: creator?.line_user_id ? String(creator.line_user_id) : "",
+    allowOthersToModify,
+    requesterIsCreator,
   };
 }
 
@@ -2193,6 +2239,8 @@ export type EventUpdatableFields = {
   startsAt?: string;
   location?: string | null;
   description?: string | null;
+  /** Creator-only. Non-creator requests with this field set will be rejected. */
+  allowOthersToModify?: boolean;
 };
 
 export type UpdatedEventResult = {
@@ -2238,6 +2286,16 @@ export async function updateEventForUser(input: {
   }
   if (input.fields.description !== undefined) {
     patch.description = input.fields.description?.trim() ? input.fields.description.trim() : null;
+  }
+  if (input.fields.allowOthersToModify !== undefined) {
+    if (!previous.requesterIsCreator) {
+      throw new RepositoryError(
+        "只有會議建立者可以變更權限設定。",
+        403,
+        "FORBIDDEN"
+      );
+    }
+    patch.allow_others_to_modify = Boolean(input.fields.allowOthersToModify);
   }
 
   if (Object.keys(patch).length === 0) {

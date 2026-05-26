@@ -70,6 +70,8 @@ type MeetingItem = {
   meetingUrl: string | null;
   driveFolderUrl: string | null;
   summary: string | null;
+  ownerLineUserId: string | null;
+  allowOthersToModify: boolean;
 };
 
 type DashboardEvent = {
@@ -83,9 +85,11 @@ type DashboardEvent = {
   timezone: string;
   status: string;
   ownerDisplayName: string;
+  ownerLineUserId: string | null;
   meetingUrl: string | null;
   driveFolderId: string | null;
   summary: string | null;
+  allowOthersToModify: boolean;
 };
 
 type TodoItem = {
@@ -133,6 +137,7 @@ export default function DashboardLiffPage() {
     formatDateKey(new Date())
   );
   const [lineAccessToken, setLineAccessToken] = useState<string | null>(null);
+  const [currentLineUserId, setCurrentLineUserId] = useState<string | null>(null);
   const [todoItems, setTodoItems] = useState<TodoItem[]>([]);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [currentUserDisplayName, setCurrentUserDisplayName] = useState<string>("");
@@ -155,6 +160,7 @@ export default function DashboardLiffPage() {
     time: "",
     location: "",
     description: "",
+    allowOthersToModify: true,
   });
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string>("");
@@ -185,6 +191,7 @@ export default function DashboardLiffPage() {
       time: meeting.time,
       location: meeting.location === "未提供地點" ? "" : meeting.location,
       description: meeting.description ?? "",
+      allowOthersToModify: meeting.allowOthersToModify,
     });
   }
 
@@ -205,20 +212,29 @@ export default function DashboardLiffPage() {
     }
     setSavingEdit(true);
     setEditError("");
+    const isCreator =
+      currentLineUserId !== null &&
+      editingMeeting.ownerLineUserId === currentLineUserId;
     try {
+      const payload: Record<string, unknown> = {
+        title,
+        date: editForm.date,
+        time: editForm.time,
+        location: editForm.location.trim() || null,
+        description: editForm.description.trim() || null,
+      };
+      // Only send the permission flag when the requester is the creator —
+      // server rejects it otherwise.
+      if (isCreator && editForm.allowOthersToModify !== editingMeeting.allowOthersToModify) {
+        payload.allowOthersToModify = editForm.allowOthersToModify;
+      }
       const res = await fetch(`/api/events/${editingMeeting.eventId}`, {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${lineAccessToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          title,
-          date: editForm.date,
-          time: editForm.time,
-          location: editForm.location.trim() || null,
-          description: editForm.description.trim() || null,
-        }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -232,6 +248,7 @@ export default function DashboardLiffPage() {
         description: string | null;
         meetingUrl: string | null;
         timezone: string;
+        allowOthersToModify?: boolean;
       };
       const meetingId = editingMeeting.id;
       const startsAt = new Date(data.startsAt);
@@ -248,6 +265,8 @@ export default function DashboardLiffPage() {
                 description: data.description?.trim() ? data.description : null,
                 meetingUrl: data.meetingUrl?.trim() ? data.meetingUrl : null,
                 timezone: data.timezone,
+                allowOthersToModify:
+                  data.allowOthersToModify ?? m.allowOthersToModify,
               }
             : m
         )
@@ -359,10 +378,15 @@ export default function DashboardLiffPage() {
           error?: string;
           groups?: DashboardGroup[];
           events?: DashboardEvent[];
+          currentLineUserId?: string;
         };
 
         if (!response.ok) {
           throw new Error(payload.error ?? "讀取活動失敗");
+        }
+
+        if (payload.currentLineUserId) {
+          setCurrentLineUserId(payload.currentLineUserId);
         }
 
         const nextGroups = payload.groups ?? [];
@@ -924,18 +948,25 @@ export default function DashboardLiffPage() {
                 {selectedMeetings
                   .slice()
                   .sort((a, b) => a.startsAtIso.localeCompare(b.startsAtIso))
-                  .map((meeting) => (
-                    <MeetingCard
-                      key={meeting.id}
-                      meeting={meeting}
-                      expanded={expandedMeetingIds.has(meeting.id)}
-                      onToggle={() => toggleMeetingExpanded(meeting.id)}
-                      onEdit={() => openEditModal(meeting)}
-                      onCancel={() => handleCancelMeeting(meeting)}
-                      cancelling={cancellingMeetingId === meeting.id}
-                      showDate={false}
-                    />
-                  ))}
+                  .map((meeting) => {
+                    const isCreator =
+                      currentLineUserId !== null &&
+                      meeting.ownerLineUserId === currentLineUserId;
+                    const canModify = isCreator || meeting.allowOthersToModify;
+                    return (
+                      <MeetingCard
+                        key={meeting.id}
+                        meeting={meeting}
+                        expanded={expandedMeetingIds.has(meeting.id)}
+                        onToggle={() => toggleMeetingExpanded(meeting.id)}
+                        onEdit={() => openEditModal(meeting)}
+                        onCancel={() => handleCancelMeeting(meeting)}
+                        cancelling={cancellingMeetingId === meeting.id}
+                        canModify={canModify}
+                        showDate={false}
+                      />
+                    );
+                  })}
               </div>
             )}
           </div>
@@ -946,18 +977,25 @@ export default function DashboardLiffPage() {
               <p style={emptyStyle}>目前沒有即將到來的會議。</p>
             ) : (
               <div style={stackStyle}>
-                {upcomingMeetings.map((meeting) => (
-                  <MeetingCard
-                    key={meeting.id}
-                    meeting={meeting}
-                    expanded={expandedMeetingIds.has(meeting.id)}
-                    onToggle={() => toggleMeetingExpanded(meeting.id)}
-                    onEdit={() => openEditModal(meeting)}
-                    onCancel={() => handleCancelMeeting(meeting)}
-                    cancelling={cancellingMeetingId === meeting.id}
-                    showDate
-                  />
-                ))}
+                {upcomingMeetings.map((meeting) => {
+                  const isCreator =
+                    currentLineUserId !== null &&
+                    meeting.ownerLineUserId === currentLineUserId;
+                  const canModify = isCreator || meeting.allowOthersToModify;
+                  return (
+                    <MeetingCard
+                      key={meeting.id}
+                      meeting={meeting}
+                      expanded={expandedMeetingIds.has(meeting.id)}
+                      onToggle={() => toggleMeetingExpanded(meeting.id)}
+                      onEdit={() => openEditModal(meeting)}
+                      onCancel={() => handleCancelMeeting(meeting)}
+                      cancelling={cancellingMeetingId === meeting.id}
+                      canModify={canModify}
+                      showDate
+                    />
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1379,6 +1417,37 @@ export default function DashboardLiffPage() {
                   style={{ ...modalFieldStyle, fontFamily: "inherit", resize: "vertical" }}
                 />
               </div>
+
+              {currentLineUserId !== null &&
+                editingMeeting.ownerLineUserId === currentLineUserId && (
+                  <div>
+                    <label style={modalLabelStyle}>權限</label>
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.55rem",
+                        cursor: "pointer",
+                        fontSize: "0.85rem",
+                        color: THEME.text,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={editForm.allowOthersToModify}
+                        onChange={(e) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            allowOthersToModify: e.target.checked,
+                          }))
+                        }
+                        style={{ flexShrink: 0, width: "1rem", height: "1rem" }}
+                      />
+                      <span>允許其他群組成員編輯或取消此會議</span>
+                    </label>
+                  </div>
+                )}
             </div>
 
             {editError && (
@@ -1543,6 +1612,8 @@ function mapEventToMeetingItem(
       ? `https://drive.google.com/drive/folders/${event.driveFolderId.trim()}`
       : null,
     summary: event.summary?.trim() ? event.summary : null,
+    ownerLineUserId: event.ownerLineUserId ?? null,
+    allowOthersToModify: event.allowOthersToModify !== false,
   };
 }
 
@@ -2070,6 +2141,7 @@ function MeetingCard({
   onEdit,
   onCancel,
   cancelling,
+  canModify,
   showDate,
 }: {
   meeting: MeetingItem;
@@ -2078,6 +2150,7 @@ function MeetingCard({
   onEdit: () => void;
   onCancel: () => void;
   cancelling: boolean;
+  canModify: boolean;
   showDate: boolean;
 }) {
   const locationText = meeting.location?.trim() ?? "";
@@ -2261,35 +2334,48 @@ function MeetingCard({
               </div>
             </div>
           )}
-          <div style={{ display: "flex", gap: "0.4rem", marginTop: description || meetingUrl || driveFolderUrl || summary ? "0.2rem" : 0 }}>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit();
-              }}
-              disabled={cancelling}
-              style={meetingActionButtonStyle}
-            >
-              編輯
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCancel();
-              }}
-              disabled={cancelling}
+          {canModify ? (
+            <div style={{ display: "flex", gap: "0.4rem", marginTop: description || meetingUrl || driveFolderUrl || summary ? "0.2rem" : 0 }}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+                disabled={cancelling}
+                style={meetingActionButtonStyle}
+              >
+                編輯
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCancel();
+                }}
+                disabled={cancelling}
+                style={{
+                  ...meetingActionButtonStyle,
+                  color: THEME.errorText,
+                  borderColor: THEME.errorBorder,
+                  background: THEME.errorBg,
+                }}
+              >
+                {cancelling ? "取消中…" : "取消會議"}
+              </button>
+            </div>
+          ) : (
+            <div
               style={{
-                ...meetingActionButtonStyle,
-                color: THEME.errorText,
-                borderColor: THEME.errorBorder,
-                background: THEME.errorBg,
+                fontSize: "0.78rem",
+                color: THEME.textMuted,
+                fontStyle: "italic",
+                marginTop: description || meetingUrl || driveFolderUrl || summary ? "0.2rem" : 0,
               }}
             >
-              {cancelling ? "取消中…" : "取消會議"}
-            </button>
-          </div>
+              建立者已設定只有自己可以編輯或取消此會議。
+            </div>
+          )}
         </div>
       )}
     </article>

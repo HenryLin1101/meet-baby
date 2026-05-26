@@ -76,6 +76,7 @@ export default function MeetingLiffPage() {
 
   // Advanced Settings Toggle
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [allowOthersToModify, setAllowOthersToModify] = useState(true);
 
   // Pre-seed weekday from the chosen date
   useEffect(() => {
@@ -236,6 +237,7 @@ export default function MeetingLiffPage() {
         attendeeUserIds: selectedAttendeeIds.map(Number),
         wantsMeetingLink,
         reminderLeadTimeMinutes,
+        allowOthersToModify,
       };
 
       if (isRecurring) {
@@ -514,7 +516,20 @@ export default function MeetingLiffPage() {
                 </button>
 
                 {showAdvanced && (
+                  
                   <div className={styles.advancedPanel}>
+                    <label className={styles.toggleRow}>
+                      <input
+                        type="checkbox"
+                        checked={allowOthersToModify}
+                        onChange={(e) => setAllowOthersToModify(e.target.checked)}
+                        disabled={disabled}
+                        className={styles.toggleCheckbox}
+                      />
+                      <span className={styles.toggleLabel}>
+                        允許其他群組成員編輯或取消此會議
+                      </span>
+                    </label>
                     <Field label="備註">
                       <textarea
                         className={styles.input}
@@ -530,6 +545,8 @@ export default function MeetingLiffPage() {
                         disabled={disabled}
                       />
                     </Field>
+
+                    
 
                     {/* Reminder lead time */}
                     <div className={styles.field}>
