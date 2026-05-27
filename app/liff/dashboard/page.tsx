@@ -11,6 +11,7 @@ import {
 import { initLiffOrThrow } from "@/lib/liff/client";
 import MascotLoadingScreen from "@/lib/liff/MascotLoadingScreen";
 import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
+import MemberMultiSelect from "@/lib/tools/MemberMultiSelect";
 
 /** LIFF Dashboard：淺灰質感 + 吉祥物電光藍（#00C2FF） */
 const THEME = {
@@ -612,6 +613,10 @@ export default function DashboardLiffPage() {
 
   async function handleDeleteTodo(id: number) {
     if (!lineAccessToken) return;
+    const target = todoItems.find((t) => t.id === id);
+    const label = target?.item?.trim() || "這項待辦事項";
+    const ok = window.confirm(`確定要刪除「${label}」嗎？此動作無法復原。`);
+    if (!ok) return;
     const backup = todoItems;
     setTodoItems((prev) => prev.filter((t) => t.id !== id));
     try {
@@ -1031,6 +1036,7 @@ export default function DashboardLiffPage() {
                     todo={todo}
                     groups={groups}
                     groupColor={resolveGroupColor(todo.lineGroupId)}
+                    members={groupMembers[todo.lineGroupId] ?? []}
                     onToggle={() => handleToggleTodo(todo.id, true)}
                     onDelete={() => handleDeleteTodo(todo.id)}
                     onOpenEdit={() => openTodoEditModal(todo)}
@@ -1056,6 +1062,7 @@ export default function DashboardLiffPage() {
                         todo={todo}
                         groups={groups}
                         groupColor={resolveGroupColor(todo.lineGroupId)}
+                        members={groupMembers[todo.lineGroupId] ?? []}
                         onToggle={() => handleToggleTodo(todo.id, false)}
                         onDelete={() => handleDeleteTodo(todo.id)}
                         onOpenEdit={() => openTodoEditModal(todo)}
@@ -1481,6 +1488,42 @@ function GroupAvatar({
   );
 }
 
+function AssigneeAvatar({
+  name,
+  pictureUrl,
+}: {
+  name: string;
+  pictureUrl: string | null;
+}) {
+  const initial = name.trim().slice(0, 1) || "?";
+  if (pictureUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={pictureUrl}
+        alt={name}
+        style={assigneeAvatarStyle}
+      />
+    );
+  }
+  return (
+    <span
+      style={{
+        ...assigneeAvatarStyle,
+        background: THEME.pageBgAlt,
+        color: THEME.text,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "0.7rem",
+        fontWeight: 700,
+      }}
+    >
+      {initial}
+    </span>
+  );
+}
+
 function formatDateKeyInTimeZone(date: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -1844,18 +1887,6 @@ const completedToggleStyle: CSSProperties = {
   marginTop: "0.5rem",
 };
 
-const todoDeleteBtnStyle: CSSProperties = {
-  border: "none",
-  background: "transparent",
-  color: THEME.textMuted,
-  cursor: "pointer",
-  fontSize: "1.15rem",
-  padding: "0.35rem 0.45rem",
-  borderRadius: "8px",
-  flexShrink: 0,
-  lineHeight: 1,
-};
-
 const modalLabelStyle: CSSProperties = {
   display: "block",
   fontSize: "0.78rem",
@@ -1877,6 +1908,14 @@ const modalFieldStyle: CSSProperties = {
   cursor: "pointer",
 };
 
+const assigneeAvatarStyle: CSSProperties = {
+  width: "18px",
+  height: "18px",
+  borderRadius: "999px",
+  objectFit: "cover",
+  flexShrink: 0,
+};
+
 const assigneeChipStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
@@ -1887,16 +1926,6 @@ const assigneeChipStyle: CSSProperties = {
   borderRadius: "12px",
   padding: "0.1rem 0.45rem",
   lineHeight: 1.4,
-};
-
-const assigneeChipRemoveStyle: CSSProperties = {
-  border: "none",
-  background: "transparent",
-  color: THEME.textMuted,
-  cursor: "pointer",
-  fontSize: "0.6rem",
-  padding: "0 0.1rem",
-  lineHeight: 1,
 };
 
 function MeetingCard({
@@ -2306,49 +2335,25 @@ function TodoFormModal({
 
           <div>
             <label style={modalLabelStyle}>指派成員</label>
-            <select
-              value=""
-              onChange={(e) => {
-                const uid = Number(e.target.value);
-                if (uid && !form.assignees.includes(uid)) {
-                  setForm((p) => ({ ...p, assignees: [...p.assignees, uid] }));
+            {form.lineGroupId ? (
+              <MemberMultiSelect
+                members={memberPool}
+                selectedIds={form.assignees.map(String)}
+                onChange={(ids) =>
+                  setForm((p) => ({ ...p, assignees: ids.map(Number) }))
                 }
-              }}
-              style={modalFieldStyle}
-              aria-label="指派成員"
-              disabled={!form.lineGroupId}
-            >
-              <option value="">{form.lineGroupId ? "選擇成員" : "請先選擇群組"}</option>
-              {memberPool
-                .filter((m) => !form.assignees.includes(m.userId))
-                .map((m) => (
-                  <option key={m.userId} value={m.userId}>
-                    {m.displayName}
-                  </option>
-                ))}
-            </select>
-            {form.assignees.length > 0 && (
-              <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-                {form.assignees.map((uid) => {
-                  const m = memberPool.find((x) => x.userId === uid);
-                  return (
-                    <span key={uid} style={assigneeChipStyle}>
-                      {m?.displayName ?? "?"}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setForm((p) => ({
-                            ...p,
-                            assignees: p.assignees.filter((id) => id !== uid),
-                          }))
-                        }
-                        style={assigneeChipRemoveStyle}
-                      >
-                        ✕
-                      </button>
-                    </span>
-                  );
-                })}
+                compact
+                usePortal
+              />
+            ) : (
+              <div
+                style={{
+                  ...modalFieldStyle,
+                  color: THEME.textMuted,
+                  cursor: "not-allowed",
+                }}
+              >
+                請先選擇群組
               </div>
             )}
           </div>
@@ -2383,6 +2388,7 @@ function TodoItemCard({
   todo,
   groups,
   groupColor,
+  members,
   onToggle,
   onDelete,
   onOpenEdit,
@@ -2390,10 +2396,12 @@ function TodoItemCard({
   todo: TodoItem;
   groups: DashboardGroup[];
   groupColor: string;
+  members: TodoGroupMember[];
   onToggle: () => void;
   onDelete: () => void;
   onOpenEdit: () => void;
 }) {
+  const memberById = new Map(members.map((m) => [m.userId, m]));
   const groupName =
     groups.find((g) => g.lineGroupId === todo.lineGroupId)?.name?.trim() ||
     "未命名群組";
@@ -2401,104 +2409,107 @@ function TodoItemCard({
     todo.due && /^\d{4}-\d{2}-\d{2}/.test(todo.due) ? todo.due.slice(0, 10) : "";
 
   return (
-    <article
-      style={{
-        ...meetingCardCompactStyle,
-        display: "flex",
-        alignItems: "flex-start",
-        gap: "0.55rem",
-      }}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-label={todo.isCompleted ? "標記為未完成" : "標記為完成"}
-        style={{
-          width: "1.25rem",
-          height: "1.25rem",
-          borderRadius: "50%",
-          border: `2px solid ${todo.isCompleted ? groupColor : THEME.surfaceBorder}`,
-          background: todo.isCompleted ? groupColor : "transparent",
-          cursor: "pointer",
-          flexShrink: 0,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          marginTop: "0.15rem",
-          color: "#FFF",
-          fontSize: "0.65rem",
-          transition: "background 0.15s, border-color 0.15s",
-          padding: 0,
-        }}
-      >
-        {todo.isCompleted && "✓"}
-      </button>
-
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
+    <article style={meetingCardCompactStyle}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "0.55rem" }}>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={todo.isCompleted ? "標記為未完成" : "標記為完成"}
           style={{
-            fontWeight: 700,
-            fontSize: "0.9rem",
-            color: todo.isCompleted ? THEME.textMuted : THEME.text,
-            textDecoration: todo.isCompleted ? "line-through" : "none",
-            marginBottom: "0.25rem",
+            width: "1.25rem",
+            height: "1.25rem",
+            borderRadius: "50%",
+            border: `2px solid ${todo.isCompleted ? groupColor : THEME.surfaceBorder}`,
+            background: todo.isCompleted ? groupColor : "transparent",
+            cursor: "pointer",
+            flexShrink: 0,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            marginTop: "0.15rem",
+            color: "#FFF",
+            fontSize: "0.65rem",
+            transition: "background 0.15s, border-color 0.15s",
+            padding: 0,
           }}
         >
-          {todo.item}
-        </div>
+          {todo.isCompleted && "✓"}
+        </button>
 
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.1rem" }}>
-          {dueDateDisplay && (
-            <span style={{ fontSize: "0.76rem", color: THEME.textMuted, display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-              {dueDateDisplay}
-            </span>
-          )}
-          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
-            <span style={{ ...groupPillDotStyle, background: groupColor }} />
-            <span style={{ fontSize: "0.72rem", color: THEME.textMuted }}>{groupName}</span>
-          </span>
-        </div>
-
-        {todo.assignedUsers.length > 0 && (
-          <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
-            {todo.assignedUsers.map((u) => (
-              <span key={u.userId} style={{ ...assigneeChipStyle, cursor: "default" }}>
-                {u.displayName}
-              </span>
-            ))}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontWeight: 700,
+              fontSize: "0.9rem",
+              color: todo.isCompleted ? THEME.textMuted : THEME.text,
+              textDecoration: todo.isCompleted ? "line-through" : "none",
+              marginBottom: "0.25rem",
+            }}
+          >
+            {todo.item}
           </div>
-        )}
+
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.1rem" }}>
+            {dueDateDisplay && (
+              <span style={{ fontSize: "0.76rem", color: THEME.textMuted, display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                {dueDateDisplay}
+              </span>
+            )}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+              <span style={{ ...groupPillDotStyle, background: groupColor }} />
+              <span style={{ fontSize: "0.72rem", color: THEME.textMuted }}>{groupName}</span>
+            </span>
+          </div>
+
+          {todo.assignedUsers.length > 0 && (
+            <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
+              {todo.assignedUsers.map((u) => {
+                const cached = memberById.get(u.userId);
+                return (
+                  <span
+                    key={u.userId}
+                    style={{
+                      ...assigneeChipStyle,
+                      cursor: "default",
+                      paddingLeft: "0.2rem",
+                      gap: "0.3rem",
+                    }}
+                  >
+                    <AssigneeAvatar
+                      name={u.displayName}
+                      pictureUrl={cached?.pictureUrl ?? null}
+                    />
+                    {u.displayName}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: "0.15rem", flexShrink: 0, marginTop: "0.1rem" }}>
+      <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.6rem" }}>
         {!todo.isCompleted && (
           <button
             type="button"
             onClick={onOpenEdit}
-            aria-label="編輯待辦事項"
-            style={{
-              border: "none",
-              background: "transparent",
-              color: THEME.textMuted,
-              cursor: "pointer",
-              fontSize: "1.15rem",
-              padding: "0.35rem 0.45rem",
-              borderRadius: "8px",
-              lineHeight: 1,
-              transition: "background 0.15s, color 0.15s",
-            }}
+            style={meetingActionButtonStyle}
           >
-            ✎
+            編輯
           </button>
         )}
         <button
           type="button"
           onClick={onDelete}
-          aria-label="刪除待辦事項"
-          style={todoDeleteBtnStyle}
+          style={{
+            ...meetingActionButtonStyle,
+            color: THEME.errorText,
+            borderColor: THEME.errorBorder,
+            background: THEME.errorBg,
+          }}
         >
-          ✕
+          刪除
         </button>
       </div>
     </article>

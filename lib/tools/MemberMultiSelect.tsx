@@ -2,12 +2,14 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type MouseEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import { LIFF_UI_THEME as T } from "@/lib/liff/liffUiTheme";
 
@@ -24,6 +26,9 @@ type MemberMultiSelectProps = {
   onChange: (ids: string[]) => void;
   disabled?: boolean;
   compact?: boolean;
+  /** When true, render the dropdown popover into document.body so it escapes
+   *  scrollable / clipped ancestors (e.g. dialog containers with overflow:auto). */
+  usePortal?: boolean;
 };
 
 function getAvatarInitials(name: string): string {
@@ -80,23 +85,62 @@ export default function MemberMultiSelect({
   onChange,
   disabled = false,
   compact = false,
+  usePortal = false,
 }: MemberMultiSelectProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [portalRect, setPortalRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
 
-  // 點擊元件外部時收起懸浮選單
+  // 點擊元件外部時收起懸浮選單。Portal 模式下面板不在 containerRef 內，
+  // 因此也要排除點擊在面板上的情況。
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
+      const target = event.target as Node;
+      if (containerRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setIsOpen(false);
     }
 
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, []);
+
+  // 在 portal 模式時，根據觸發元素位置定位浮動面板，並於捲動 / 縮放時跟隨。
+  // 使用 useLayoutEffect 確保面板在第一次 paint 前已測得正確座標，避免閃爍。
+  // 若下方空間不足以容納面板，會自動翻轉到觸發元素上方開啟（避免擋住送出鍵）。
+  // 關閉時不必清空 portalRect — 面板透過 isOpen 條件移除，下次開啟也會立刻被覆寫。
+  useLayoutEffect(() => {
+    if (!usePortal || !isOpen) return;
+    function updateRect() {
+      const node = containerRef.current;
+      if (!node) return;
+      const r = node.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const margin = 8;
+      const spaceBelow = viewportHeight - r.bottom - margin;
+      const spaceAbove = r.top - margin;
+      const maxCap = compact ? 224 : 288; // 14rem / 18rem assuming 16px base
+      const flip = spaceAbove > spaceBelow && spaceAbove > 80;
+      const maxHeight = Math.max(80, Math.min(maxCap, flip ? spaceAbove : spaceBelow));
+      const top = flip ? r.top - maxHeight - 6 : r.bottom + 6;
+      setPortalRect({ top, left: r.left, width: r.width, maxHeight });
+    }
+    updateRect();
+    window.addEventListener("scroll", updateRect, true);
+    window.addEventListener("resize", updateRect);
+    return () => {
+      window.removeEventListener("scroll", updateRect, true);
+      window.removeEventListener("resize", updateRect);
+    };
+  }, [usePortal, isOpen, compact]);
 
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
@@ -189,46 +233,64 @@ export default function MemberMultiSelect({
         />
       </div>
 
-      {/* 懸浮選單 (Popover) */}
-      {isOpen && !disabled && (
-        <div
-          style={{
-            ...floatingPanelStyle,
-            maxHeight: compact ? "14rem" : "18rem",
-          }}
-        >
-          {filteredMembers.length > 0 ? (
-            filteredMembers.map((member) => {
-              const isSelected = selectedIdSet.has(String(member.userId));
+      {/* 懸浮選單 (Popover) — Portal 模式下，等到位置量測完成才渲染，避免閃爍。 */}
+      {isOpen && !disabled && (!usePortal || portalRect !== null) && (() => {
+        const panel = (
+          <div
+            ref={panelRef}
+            style={
+              usePortal && portalRect
+                ? {
+                    ...floatingPanelStyle,
+                    position: "fixed",
+                    top: portalRect.top,
+                    left: portalRect.left,
+                    width: portalRect.width,
+                    maxHeight: portalRect.maxHeight,
+                    zIndex: 10000,
+                  }
+                : {
+                    ...floatingPanelStyle,
+                    maxHeight: compact ? "14rem" : "18rem",
+                  }
+            }
+          >
+            {filteredMembers.length > 0 ? (
+              filteredMembers.map((member) => {
+                const isSelected = selectedIdSet.has(String(member.userId));
 
-              return (
-                <button
-                  key={member.userId}
-                  type="button"
-                  style={{
-                    ...optionStyle,
-                    ...(isSelected ? selectedOptionStyle : {}),
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleMember(member.userId);
-                  }}
-                >
-                  <MemberAvatar
-                    displayName={member.displayName}
-                    pictureUrl={member.pictureUrl}
-                    size={32}
-                  />
-                  <span style={optionTitleStyle}>{member.displayName}</span>
-                  {isSelected && <span style={checkIconStyle}>✓</span>}
-                </button>
-              );
-            })
-          ) : (
-            <div style={emptyStateStyle}>找不到符合條件的成員。</div>
-          )}
-        </div>
-      )}
+                return (
+                  <button
+                    key={member.userId}
+                    type="button"
+                    style={{
+                      ...optionStyle,
+                      ...(isSelected ? selectedOptionStyle : {}),
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleMember(member.userId);
+                    }}
+                  >
+                    <MemberAvatar
+                      displayName={member.displayName}
+                      pictureUrl={member.pictureUrl}
+                      size={32}
+                    />
+                    <span style={optionTitleStyle}>{member.displayName}</span>
+                    {isSelected && <span style={checkIconStyle}>✓</span>}
+                  </button>
+                );
+              })
+            ) : (
+              <div style={emptyStateStyle}>找不到符合條件的成員。</div>
+            )}
+          </div>
+        );
+        return usePortal && typeof document !== "undefined"
+          ? createPortal(panel, document.body)
+          : panel;
+      })()}
     </div>
   );
 }
