@@ -3,9 +3,11 @@ import {
   createTodoItemsFromSummary,
   getEventSummaryProcessingDetails,
   getGoogleCredentialByLineUserId,
+  listActiveGroupMembersWithEmail,
   markEventSummaryCompleted,
   markEventSummaryFailed,
 } from "@/lib/db/repository";
+import { resolveActionItemOwners } from "@/lib/summaries/resolveTodoOwners";
 import { exportGoogleDocAsPlainText } from "@/lib/google/drive";
 import { createMessagingClient } from "@/lib/line/messagingClient";
 import {
@@ -88,25 +90,39 @@ async function handleSummaryJob(request: Request) {
       transcript: exported.text,
     });
 
+    const groupMembers = await listActiveGroupMembersWithEmail(details.lineGroupId);
+    const resolvedActionItems = resolveActionItemOwners(
+      summary.actionItems,
+      groupMembers.map((member) => ({
+        userId: member.userId,
+        displayName: member.displayName,
+        email: member.email,
+      }))
+    );
+    const resolvedSummary = {
+      ...summary,
+      actionItems: resolvedActionItems.map(({ assignedUserIds: _ids, ...item }) => item),
+    };
+
     const summaryText = formatMeetingSummaryForLine({
       title: exported.title,
-      summary,
+      summary: resolvedSummary,
       sourceUrl: details.sourceDriveUrl,
     });
 
     await markEventSummaryCompleted({
       summaryId,
       transcriptText: exported.text,
-      summaryJson: summary,
+      summaryJson: resolvedSummary,
       summaryText,
     });
 
     try {
-      if (summary.actionItems.length > 0) {
+      if (resolvedActionItems.length > 0) {
         await createTodoItemsFromSummary({
           summaryId,
           groupId: details.groupId,
-          items: summary.actionItems,
+          items: resolvedActionItems,
         });
       }
     } catch (todoErr) {
@@ -118,7 +134,7 @@ async function handleSummaryJob(request: Request) {
         summaryId,
         groupId: details.groupId,
         meetingTitle: exported.title ?? "",
-        summaryJson: summary,
+        summaryJson: resolvedSummary,
         summaryText,
         transcriptText: exported.text,
         completedAt: new Date().toISOString(),

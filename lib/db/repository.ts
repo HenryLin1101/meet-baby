@@ -1650,10 +1650,30 @@ export async function getProcessedDriveFileIds(): Promise<Set<string>> {
 // Todo Items
 // ---------------------------------------------------------------------------
 
+export async function listActiveGroupMembersWithEmail(
+  lineGroupId: string
+): Promise<(GroupMember & { email: string | null })[]> {
+  const members = await listActiveGroupMembers(lineGroupId);
+  if (members.length === 0) return [];
+
+  const refs = await listLineUsersByIds(members.map((member) => member.userId));
+  const emailMap = new Map(refs.map((ref) => [ref.userId, ref.email]));
+
+  return members.map((member) => ({
+    ...member,
+    email: emailMap.get(member.userId) ?? null,
+  }));
+}
+
 export async function createTodoItemsFromSummary(input: {
   summaryId: number;
   groupId: number;
-  items: { item: string; owner: string; due: string }[];
+  items: {
+    item: string;
+    owner: string;
+    due: string;
+    assignedUserIds?: number[];
+  }[];
 }): Promise<void> {
   if (input.items.length === 0) return;
 
@@ -1669,8 +1689,18 @@ export async function createTodoItemsFromSummary(input: {
     due: i.due ?? "",
   }));
 
-  const { error } = await supabase.from("todo_items").insert(rows);
+  const { data, error } = await supabase
+    .from("todo_items")
+    .insert(rows)
+    .select("id");
   assertNoError(error, "建立待辦事項失敗。");
+
+  const inserted = (data ?? []) as { id: number }[];
+  for (let index = 0; index < inserted.length; index += 1) {
+    const assignedUserIds = input.items[index]?.assignedUserIds ?? [];
+    if (assignedUserIds.length === 0) continue;
+    await syncTodoAssignees(supabase, Number(inserted[index]?.id), assignedUserIds);
+  }
 }
 
 async function syncTodoAssignees(
