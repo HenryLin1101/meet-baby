@@ -214,9 +214,36 @@ export default function MeetingLiffPage() {
     }
 
     const wantsMeetingLink = meetingType !== "inPerson";
-    if (wantsMeetingLink && !hasCalendarScope) {
-      setConsentModalVisible(true);
-      return;
+    if (wantsMeetingLink) {
+      // Re-validate the Google token right before sending — it may have expired
+      // since the form loaded. calendar-scope attempts a refresh server-side, so
+      // a freshly-dead token pops the consent modal instead of silently creating
+      // a meeting without a Meet link. Network blips fall back to cached state.
+      let connected = hasCalendarScope;
+      try {
+        const scopeResponse = await fetch(
+          `/api/google/calendar-scope?groupId=${encodeURIComponent(groupId)}`,
+          {
+            method: "GET",
+            headers: { Authorization: `Bearer ${accessToken}` },
+            cache: "no-store",
+          }
+        );
+        const scopePayload = (await scopeResponse.json()) as {
+          hasCalendarScope?: boolean;
+          consentPageUrl?: string;
+        };
+        connected = Boolean(scopePayload.hasCalendarScope);
+        setHasCalendarScope(connected);
+        setConsentPageUrl(scopePayload.consentPageUrl ?? "");
+      } catch {
+        // Keep the cached `connected` value on a failed check.
+      }
+
+      if (!connected) {
+        setConsentModalVisible(true);
+        return;
+      }
     }
 
     await submitEvent(wantsMeetingLink);

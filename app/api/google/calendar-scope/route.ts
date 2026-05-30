@@ -1,10 +1,12 @@
 import {
   getGoogleCredentialByLineUserId,
   hasCalendarScope,
+  markGoogleCredentialRevoked,
   upsertLineUser,
 } from "@/lib/db/repository";
 import { getBearerToken, LineAuthError, verifyLineAccessToken } from "@/lib/line/auth";
 import { buildLiffUrl } from "@/lib/liff/utils";
+import { GoogleRefreshTokenInvalidError, refreshAccessToken } from "@/lib/google/oauth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +37,18 @@ export async function GET(request: Request) {
     const credential = await getGoogleCredentialByLineUserId(verifiedUser.lineUserId);
 
     if (credential && hasCalendarScope(credential)) {
-      return Response.json({ hasCalendarScope: true });
+      // The stored scopes look right, but the refresh token may be expired or
+      // revoked (e.g. Testing-mode 7-day expiry). Validate it now by attempting
+      // a refresh — otherwise the form offers a Meet link that silently fails at
+      // submit. On invalid_grant, drop the dead token and fall through to the
+      // consent prompt; transient errors propagate to the 500 handler.
+      try {
+        await refreshAccessToken(credential.refreshToken);
+        return Response.json({ hasCalendarScope: true });
+      } catch (err) {
+        if (!(err instanceof GoogleRefreshTokenInvalidError)) throw err;
+        await markGoogleCredentialRevoked(verifiedUser.lineUserId);
+      }
     }
 
     // Build a consent page URL that returns the user to the LIFF meeting form.
