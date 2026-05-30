@@ -6,6 +6,7 @@ import {
   setEventReminderSchedule,
   listGroupEvents,
   listLineUsersByIds,
+  markGoogleCredentialRevoked,
   RepositoryError,
   updateEventCalendarData,
   upsertLineUser,
@@ -24,7 +25,7 @@ import {
   verifyLineAccessToken,
 } from "@/lib/line/auth";
 import { createCalendarEventWithMeet } from "@/lib/google/calendar";
-import { refreshAccessToken } from "@/lib/google/oauth";
+import { GoogleRefreshTokenInvalidError, refreshAccessToken } from "@/lib/google/oauth";
 import {
   buildMeetingCreatedMentionMessage,
   buildRecurringMeetingCreatedMessage,
@@ -41,6 +42,21 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const WEEKDAY_NAMES_ZH = ["日", "一", "二", "三", "四", "五", "六"];
+
+// Calendar/Meet integration is best-effort. If Google rejects the token as
+// expired/revoked, drop the dead credential so the next meeting-form load
+// (calendar-scope check) re-prompts the user for consent.
+async function revokeCredentialIfReauthNeeded(
+  err: unknown,
+  lineUserId: string
+): Promise<void> {
+  if (!(err instanceof GoogleRefreshTokenInvalidError)) return;
+  try {
+    await markGoogleCredentialRevoked(lineUserId);
+  } catch (revokeErr) {
+    console.error("[create-event.calendar.revoke]", revokeErr);
+  }
+}
 
 type RecurrenceInput = {
   weekdays: number[];
@@ -207,6 +223,7 @@ async function createSingleEvent(
       }
     } catch (err) {
       console.error("[create-event.calendar]", err);
+      await revokeCredentialIfReauthNeeded(err, verifiedUserId);
     }
   }
 
@@ -408,6 +425,7 @@ export async function POST(request: Request) {
       }
     } catch (err) {
       console.error("[create-event.calendar]", err);
+      await revokeCredentialIfReauthNeeded(err, verifiedUser.lineUserId);
     }
     }
 

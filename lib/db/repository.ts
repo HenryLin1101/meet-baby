@@ -1227,6 +1227,29 @@ export async function upsertGoogleCredentialForLineUser(
   assertNoError(error, "儲存 Google 憑證失敗。");
 }
 
+/**
+ * Marks the user's Google credential as revoked so it is no longer returned by
+ * {@link getGoogleCredentialByLineUserId}. Call this when Google rejects the
+ * refresh token with `invalid_grant` — the next credential lookup returns null,
+ * which makes the existing re-prompt paths fire. Idempotent / no-op if there is
+ * no active credential.
+ */
+export async function markGoogleCredentialRevoked(
+  lineUserId: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedLineUserId = requireNonEmpty(lineUserId, "lineUserId");
+  const user = await getLineUserByLineUserId(normalizedLineUserId);
+  if (!user) return;
+
+  const { error } = await supabase
+    .from("google_credentials")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("user_id", user.id)
+    .is("revoked_at", null);
+  assertNoError(error, "標記 Google 憑證失效失敗。");
+}
+
 export async function getGoogleCredentialByLineUserId(
   lineUserId: string
 ): Promise<GoogleCredential | null> {

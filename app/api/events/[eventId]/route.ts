@@ -2,6 +2,7 @@ import {
   cancelEventForUser,
   getGoogleCredentialByLineUserId,
   hasCalendarScope,
+  markGoogleCredentialRevoked,
   RepositoryError,
   setEventAutoSummarySchedule,
   setEventReminderSchedule,
@@ -12,7 +13,7 @@ import {
   deleteCalendarEvent,
   updateCalendarEvent,
 } from "@/lib/google/calendar";
-import { refreshAccessToken } from "@/lib/google/oauth";
+import { GoogleRefreshTokenInvalidError, refreshAccessToken } from "@/lib/google/oauth";
 import {
   getBearerToken,
   LineAuthError,
@@ -25,6 +26,20 @@ import { cancelTactiqScanJob, publishTactiqScanJob } from "@/lib/summaries/qstas
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Calendar sync is best-effort. If Google rejects the token as expired/revoked,
+// drop the dead credential so the next meeting-form load re-prompts for consent.
+async function revokeCredentialIfReauthNeeded(
+  err: unknown,
+  lineUserId: string
+): Promise<void> {
+  if (!(err instanceof GoogleRefreshTokenInvalidError)) return;
+  try {
+    await markGoogleCredentialRevoked(lineUserId);
+  } catch (revokeErr) {
+    console.error("[event.calendar.revoke]", revokeErr);
+  }
+}
 
 function errorResponse(message: string, status: number) {
   return Response.json({ error: message }, { status });
@@ -107,6 +122,7 @@ export async function DELETE(
         }
       } catch (err) {
         console.error("[cancel-event.calendar]", err);
+        await revokeCredentialIfReauthNeeded(err, context.creatorLineUserId);
       }
     }
 
@@ -266,6 +282,7 @@ export async function PATCH(
         }
       } catch (err) {
         console.error("[update-event.calendar]", err);
+        await revokeCredentialIfReauthNeeded(err, next.creatorLineUserId);
       }
     }
 

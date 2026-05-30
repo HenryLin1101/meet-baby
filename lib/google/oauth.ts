@@ -8,6 +8,20 @@ export type GoogleOAuthTokenResponse = {
   token_type?: string;
 };
 
+/**
+ * Thrown when Google rejects a refresh token with `invalid_grant` — the token
+ * is expired (e.g. Testing-mode 7-day expiry) or revoked and can never be used
+ * again. Callers should mark the stored credential revoked and re-prompt the
+ * user for OAuth consent. Distinct from transient (5xx/network) failures, which
+ * remain plain Errors and should be retried, not re-authed.
+ */
+export class GoogleRefreshTokenInvalidError extends Error {
+  constructor(message = "Google refresh token is invalid or expired.") {
+    super(message);
+    this.name = "GoogleRefreshTokenInvalidError";
+  }
+}
+
 function getGoogleClientIdOrThrow(): string {
   const id = process.env.GOOGLE_CLIENT_ID?.trim();
   if (!id) throw new Error("GOOGLE_CLIENT_ID 尚未設定。");
@@ -98,9 +112,20 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
     cache: "no-store",
   });
 
-  const json = (await response.json()) as GoogleOAuthTokenResponse & { error?: string };
+  const json = (await response.json()) as GoogleOAuthTokenResponse & {
+    error?: string;
+    error_description?: string;
+  };
   if (!response.ok) {
-    throw new Error(json.error ?? "Google refresh token failed");
+    // `invalid_grant` means the refresh token itself is dead (expired/revoked) —
+    // re-authing is the only fix. Everything else (5xx, invalid_client, network)
+    // is transient or a config issue and should NOT revoke the user's credential.
+    if (json.error === "invalid_grant") {
+      throw new GoogleRefreshTokenInvalidError(
+        json.error_description ?? "Google refresh token is invalid or expired."
+      );
+    }
+    throw new Error(json.error_description ?? json.error ?? "Google refresh token failed");
   }
   const accessToken = json.access_token?.trim();
   if (!accessToken) {

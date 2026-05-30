@@ -6,9 +6,11 @@ import {
   listActiveGroupMembersWithEmail,
   markEventSummaryCompleted,
   markEventSummaryFailed,
+  markGoogleCredentialRevoked,
 } from "@/lib/db/repository";
 import { resolveActionItemOwners } from "@/lib/summaries/resolveTodoOwners";
 import { exportGoogleDocAsPlainText } from "@/lib/google/drive";
+import { GoogleRefreshTokenInvalidError } from "@/lib/google/oauth";
 import { createMessagingClient } from "@/lib/line/messagingClient";
 import {
   formatMeetingSummaryForLine,
@@ -53,37 +55,54 @@ async function handleSummaryJob(request: Request) {
 
   const client = createMessagingClient();
 
+  // Pushes the Google consent link to the group and marks the summary failed.
+  // Used both when no credential exists and when a stored token is rejected.
+  const promptGoogleConsentAndFail = async (failureReason: string) => {
+    // This summary is being marked failed (it cannot be re-claimed once it
+    // leaves "pending"), so the user must re-trigger after authorizing — we
+    // don't promise auto-resume here.
+    const consentUrl = new URL("/api/google/oauth/consent", getAppBaseUrlOrThrow());
+    consentUrl.searchParams.set("lineUserId", details.requestedByLineUserId);
+    consentUrl.searchParams.set("groupId", details.lineGroupId);
+    const msg = [
+      "我需要 Google Drive 授權才能讀取逐字稿。",
+      "請用 Safari/Chrome 開啟下方連結完成授權（LINE 內建瀏覽器會被 Google 擋）。",
+      consentUrl.toString(),
+      "授權完成後，請回到群組再把逐字稿連結貼一次給我。",
+    ].join("\n");
+
+    await client.pushMessage({
+      to: details.lineGroupId,
+      messages: [{ type: "text", text: msg }],
+    });
+
+    await markEventSummaryFailed({ summaryId, message: failureReason });
+    return Response.json({ ok: true, failed: failureReason });
+  };
+
   try {
     const credential = await getGoogleCredentialByLineUserId(
       details.requestedByLineUserId
     );
     if (!credential) {
-      const consentUrl = new URL("/api/google/oauth/consent", getAppBaseUrlOrThrow());
-      consentUrl.searchParams.set("lineUserId", details.requestedByLineUserId);
-      consentUrl.searchParams.set("groupId", details.lineGroupId);
-      const msg = [
-        "我需要 Google Drive 授權才能讀取逐字稿。",
-        "請用 Safari/Chrome 開啟下方連結完成授權（LINE 內建瀏覽器會被 Google 擋）。",
-        consentUrl.toString(),
-        "授權完成後，請回到群組再把逐字稿連結貼一次給我。",
-      ].join("\n");
-
-      await client.pushMessage({
-        to: details.lineGroupId,
-        messages: [{ type: "text", text: msg }],
-      });
-
-      await markEventSummaryFailed({
-        summaryId,
-        message: "missing_google_credential",
-      });
-      return Response.json({ ok: true, failed: "missing_google_credential" });
+      return await promptGoogleConsentAndFail("missing_google_credential");
     }
 
-    const exported = await exportGoogleDocAsPlainText({
-      fileId: details.sourceDriveFileId,
-      refreshToken: credential.refreshToken,
-    });
+    let exported;
+    try {
+      exported = await exportGoogleDocAsPlainText({
+        fileId: details.sourceDriveFileId,
+        refreshToken: credential.refreshToken,
+      });
+    } catch (err) {
+      if (err instanceof GoogleRefreshTokenInvalidError) {
+        // Token expired/revoked — drop the dead credential and re-prompt so the
+        // next consent auto-resumes this summary via the callback's summaryId.
+        await markGoogleCredentialRevoked(details.requestedByLineUserId);
+        return await promptGoogleConsentAndFail("google_reauth_required");
+      }
+      throw err;
+    }
 
     const summary = await summarizeMeetingTranscript({
       title: exported.title,

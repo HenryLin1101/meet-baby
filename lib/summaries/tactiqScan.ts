@@ -6,11 +6,13 @@ import {
   incrementEventAutoSummaryAttempt,
   markEventAutoSummaryCompleted,
   markEventAutoSummaryFailed,
+  markGoogleCredentialRevoked,
 } from "@/lib/db/repository";
 import {
   listTactiqTranscripts,
   pickBestTranscript,
 } from "@/lib/google/driveTranscript";
+import { GoogleRefreshTokenInvalidError } from "@/lib/google/oauth";
 import { createMessagingClient } from "@/lib/line/messagingClient";
 import {
   buildTranscriptSearchWindow,
@@ -96,11 +98,41 @@ export async function runTactiqScanForEvent(input: {
   );
 
   const excluded = await getProcessedDriveFileIds();
-  const candidates = await listTactiqTranscripts({
-    refreshToken: credential.refreshToken,
-    windowStart,
-    windowEnd,
-  });
+  let candidates;
+  try {
+    candidates = await listTactiqTranscripts({
+      refreshToken: credential.refreshToken,
+      windowStart,
+      windowEnd,
+    });
+  } catch (err) {
+    if (err instanceof GoogleRefreshTokenInvalidError) {
+      // Host's token expired/revoked — drop it and ask them to re-authorize.
+      await markGoogleCredentialRevoked(hostLineUserId);
+      const message = "google_reauth_required";
+      await markEventAutoSummaryFailed(eventId, message);
+      try {
+        const client = createMessagingClient();
+        await client.pushMessage({
+          to: event.lineGroupId,
+          messages: [
+            {
+              type: "text",
+              text: [
+                "【自動會議摘要】",
+                "主持人的 Google 授權已過期，無法讀取 Tactiq 逐字稿。",
+                "請主持人重新完成 Google 授權後，在群組輸入「掃描逐字稿」重試。",
+              ].join("\n"),
+            },
+          ],
+        });
+      } catch (pushErr) {
+        console.error("[tactiq-scan.notify-reauth]", pushErr);
+      }
+      return { status: "failed", message };
+    }
+    throw err;
+  }
 
   const referenceTime = resolveTranscriptPickReferenceTime(
     event.startsAt,
@@ -208,11 +240,20 @@ export async function runTactiqScanForGroup(input: {
   const windowStart = new Date(now.getTime() - lookbackMs);
 
   const excluded = await getProcessedDriveFileIds();
-  const candidates = await listTactiqTranscripts({
-    refreshToken: credential.refreshToken,
-    windowStart,
-    windowEnd: now,
-  });
+  let candidates;
+  try {
+    candidates = await listTactiqTranscripts({
+      refreshToken: credential.refreshToken,
+      windowStart,
+      windowEnd: now,
+    });
+  } catch (err) {
+    if (err instanceof GoogleRefreshTokenInvalidError) {
+      await markGoogleCredentialRevoked(hostLineUserId);
+      return { status: "failed", message: "google_reauth_required" };
+    }
+    throw err;
+  }
 
   const picked = pickBestTranscript(candidates, {
     excludedFileIds: excluded,
