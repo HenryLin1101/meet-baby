@@ -44,6 +44,9 @@ export const GOOGLE_DRIVE_READONLY_SCOPE =
 export const GOOGLE_CALENDAR_EVENTS_SCOPE =
   "https://www.googleapis.com/auth/calendar.events";
 
+export const GOOGLE_USERINFO_PROFILE_SCOPE =
+  "https://www.googleapis.com/auth/userinfo.profile";
+
 export function buildGoogleOAuthConsentUrl(input: {
   state: string;
   scopes?: string[];
@@ -51,7 +54,9 @@ export function buildGoogleOAuthConsentUrl(input: {
   const clientId = getGoogleClientIdOrThrow();
   const redirectUri = getGoogleOAuthRedirectUri();
   const baseScopes = input.scopes?.length ? input.scopes : [GOOGLE_DRIVE_READONLY_SCOPE];
-  const scopes = Array.from(new Set([...baseScopes, "openid", "email"]));
+  const scopes = Array.from(
+    new Set([...baseScopes, "openid", "email", GOOGLE_USERINFO_PROFILE_SCOPE])
+  );
 
   const params = new URLSearchParams({
     client_id: clientId,
