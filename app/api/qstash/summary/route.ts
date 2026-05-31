@@ -3,10 +3,11 @@ import {
   createTodoItemsFromSummary,
   getEventSummaryProcessingDetails,
   getGoogleCredentialByLineUserId,
-  listActiveGroupMembersWithEmail,
+  listTodoOwnerCandidatesForSummary,
   markEventSummaryCompleted,
   markEventSummaryFailed,
 } from "@/lib/db/repository";
+import { refreshGoogleProfilesForLineUsers } from "@/lib/google/syncUserProfile";
 import { resolveActionItemOwners } from "@/lib/summaries/resolveTodoOwners";
 import { exportGoogleDocAsPlainText } from "@/lib/google/drive";
 import { createMessagingClient } from "@/lib/line/messagingClient";
@@ -90,18 +91,33 @@ async function handleSummaryJob(request: Request) {
       transcript: exported.text,
     });
 
-    const groupMembers = await listActiveGroupMembersWithEmail(details.lineGroupId);
+    const ownerCandidates = await listTodoOwnerCandidatesForSummary({
+      lineGroupId: details.lineGroupId,
+      eventId: details.eventId,
+    });
+    await refreshGoogleProfilesForLineUsers(
+      ownerCandidates.map((candidate) => candidate.lineUserId)
+    );
+    const refreshedCandidates = await listTodoOwnerCandidatesForSummary({
+      lineGroupId: details.lineGroupId,
+      eventId: details.eventId,
+    });
     const resolvedActionItems = resolveActionItemOwners(
       summary.actionItems,
-      groupMembers.map((member) => ({
+      refreshedCandidates.map((member) => ({
         userId: member.userId,
         displayName: member.displayName,
         email: member.email,
+        googleDisplayName: member.googleDisplayName,
       }))
     );
     const resolvedSummary = {
       ...summary,
-      actionItems: resolvedActionItems.map(({ assignedUserIds: _ids, ...item }) => item),
+      actionItems: resolvedActionItems.map(({ item, owner, due }) => ({
+        item,
+        owner,
+        due,
+      })),
     };
 
     const summaryText = formatMeetingSummaryForLine({
