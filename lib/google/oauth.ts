@@ -134,7 +134,14 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   return { accessToken, expiresIn: json.expires_in, scope: json.scope };
 }
 
-export async function fetchGoogleUserEmail(accessToken: string): Promise<string | null> {
+export type GoogleUserProfile = {
+  email: string | null;
+  name: string | null;
+};
+
+export async function fetchGoogleUserProfile(
+  accessToken: string
+): Promise<GoogleUserProfile> {
   try {
     const response = await fetch(
       "https://openidconnect.googleapis.com/v1/userinfo",
@@ -144,11 +151,21 @@ export async function fetchGoogleUserEmail(accessToken: string): Promise<string 
         cache: "no-store",
       }
     );
-    if (!response.ok) return null;
-    const data = (await response.json()) as { email?: string };
-    return data.email?.trim() || null;
+    if (!response.ok) {
+      return { email: null, name: null };
+    }
+    const data = (await response.json()) as { email?: string; name?: string };
+    return {
+      email: data.email?.trim() || null,
+      name: data.name?.trim() || null,
+    };
   } catch {
-    return null;
+    return { email: null, name: null };
   }
+}
+
+export async function fetchGoogleUserEmail(accessToken: string): Promise<string | null> {
+  const profile = await fetchGoogleUserProfile(accessToken);
+  return profile.email;
 }
 

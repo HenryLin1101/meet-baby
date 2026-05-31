@@ -17,6 +17,7 @@ type LineUserRow = {
   status_message: string | null;
   language_code: string | null;
   email: string | null;
+  google_display_name: string | null;
 };
 
 export type LineUserProfileInput = {
@@ -40,6 +41,7 @@ export type LineUserReference = {
   lineUserId: string;
   displayName: string;
   email: string | null;
+  googleDisplayName: string | null;
 };
 
 type GroupMemberRow = {
@@ -232,6 +234,7 @@ export type SummaryProcessingDetails = {
   requestedByLineUserId: string;
   sourceDriveUrl: string;
   sourceDriveFileId: string;
+  eventId: number | null;
 };
 
 /** API 回傳給前端的待辦事項格式（camelCase） */
@@ -382,7 +385,7 @@ async function getLineUserByLineUserId(
   const { data, error } = await supabase
     .from("line_users")
     .select(
-      "id, line_user_id, display_name, picture_url, status_message, language_code, email"
+      "id, line_user_id, display_name, picture_url, status_message, language_code, email, google_display_name"
     )
     .eq("line_user_id", lineUserId)
     .maybeSingle<LineUserRow>();
@@ -435,6 +438,7 @@ type EventSummaryRow = {
   completed_at: string | null;
   last_error: string | null;
   qstash_message_id: string | null;
+  event_id: number | null;
 };
 
 export async function ensureChatGroup(
@@ -612,6 +616,22 @@ export async function setLineUserEmailByLineUserId(
   assertNoError(error, "更新 LINE 使用者 email 失敗。");
 }
 
+export async function setLineUserGoogleDisplayNameByLineUserId(
+  lineUserId: string,
+  googleDisplayName: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedLineUserId = requireNonEmpty(lineUserId, "lineUserId");
+  const normalizedName = requireNonEmpty(googleDisplayName, "googleDisplayName");
+
+  const { error } = await supabase
+    .from("line_users")
+    .update({ google_display_name: normalizedName })
+    .eq("line_user_id", normalizedLineUserId);
+
+  assertNoError(error, "更新 LINE 使用者 Google 名稱失敗。");
+}
+
 export async function listLineUsersByIds(
   userIds: number[]
 ): Promise<LineUserReference[]> {
@@ -624,7 +644,7 @@ export async function listLineUsersByIds(
 
   const { data, error } = await supabase
     .from("line_users")
-    .select("id, line_user_id, display_name, email")
+    .select("id, line_user_id, display_name, email, google_display_name")
     .in("id", normalizedUserIds)
     .order("display_name", { ascending: true })
     .order("id", { ascending: true });
@@ -636,6 +656,10 @@ export async function listLineUsersByIds(
     lineUserId: String(row.line_user_id),
     displayName: String(row.display_name),
     email: row.email === null || row.email === undefined ? null : String(row.email),
+    googleDisplayName:
+      row.google_display_name === null || row.google_display_name === undefined
+        ? null
+        : String(row.google_display_name),
   }));
 }
 
@@ -1383,7 +1407,7 @@ export async function getEventSummaryProcessingDetails(
   const { data: summary, error: summaryError } = await supabase
     .from("event_summaries")
     .select(
-      "id, group_id, requested_by_user_id, source_drive_url, source_drive_file_id, status, processing_at, completed_at, last_error, qstash_message_id"
+      "id, group_id, requested_by_user_id, source_drive_url, source_drive_file_id, status, processing_at, completed_at, last_error, qstash_message_id, event_id"
     )
     .eq("id", normalizedSummaryId)
     .maybeSingle<EventSummaryRow>();
@@ -1417,6 +1441,10 @@ export async function getEventSummaryProcessingDetails(
     requestedByLineUserId: String(user.line_user_id),
     sourceDriveUrl: String(summary.source_drive_url),
     sourceDriveFileId: String(summary.source_drive_file_id),
+    eventId:
+      typeof summary.event_id === "number" && Number.isFinite(Number(summary.event_id))
+        ? Number(summary.event_id)
+        : null,
   };
 }
 
@@ -1673,18 +1701,75 @@ export async function getProcessedDriveFileIds(): Promise<Set<string>> {
 // Todo Items
 // ---------------------------------------------------------------------------
 
+export async function listEventAttendeeUserIds(eventId: number): Promise<number[]> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
+
+  const { data, error } = await supabase
+    .from("event_attendees")
+    .select("user_id")
+    .eq("event_id", normalizedEventId)
+    .order("user_id", { ascending: true });
+  assertNoError(error, "讀取活動參與者失敗。");
+
+  return [...new Set(
+    ((data ?? []) as EventReminderAttendeeRow[])
+      .map((row) => Number(row.user_id))
+      .filter(Number.isFinite)
+  )];
+}
+
+export async function listTodoOwnerCandidatesForSummary(input: {
+  lineGroupId: string;
+  eventId?: number | null;
+}): Promise<
+  Array<{
+    userId: number;
+    lineUserId: string;
+    displayName: string;
+    email: string | null;
+    googleDisplayName: string | null;
+  }>
+> {
+  const userIds = new Set<number>();
+
+  if (typeof input.eventId === "number" && Number.isFinite(input.eventId)) {
+    for (const userId of await listEventAttendeeUserIds(input.eventId)) {
+      userIds.add(userId);
+    }
+  }
+
+  try {
+    const groupMembers = await listActiveGroupMembers(input.lineGroupId);
+    for (const member of groupMembers) {
+      userIds.add(member.userId);
+    }
+  } catch (error) {
+    if (!(error instanceof RepositoryError && error.code === "GROUP_NOT_FOUND")) {
+      throw error;
+    }
+  }
+
+  if (userIds.size === 0) {
+    return [];
+  }
+
+  return listLineUsersByIds([...userIds]);
+}
+
 export async function listActiveGroupMembersWithEmail(
   lineGroupId: string
-): Promise<(GroupMember & { email: string | null })[]> {
+): Promise<(GroupMember & { email: string | null; googleDisplayName: string | null })[]> {
   const members = await listActiveGroupMembers(lineGroupId);
   if (members.length === 0) return [];
 
   const refs = await listLineUsersByIds(members.map((member) => member.userId));
-  const emailMap = new Map(refs.map((ref) => [ref.userId, ref.email]));
+  const profileMap = new Map(refs.map((ref) => [ref.userId, ref]));
 
   return members.map((member) => ({
     ...member,
-    email: emailMap.get(member.userId) ?? null,
+    email: profileMap.get(member.userId)?.email ?? null,
+    googleDisplayName: profileMap.get(member.userId)?.googleDisplayName ?? null,
   }));
 }
 

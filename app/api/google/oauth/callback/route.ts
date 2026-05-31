@@ -2,11 +2,12 @@ import {
   consumeGoogleOAuthState,
   setEventSummaryQStashMessageId,
   setLineUserEmailByLineUserId,
+  setLineUserGoogleDisplayNameByLineUserId,
   upsertGoogleCredentialForLineUser,
 } from "@/lib/db/repository";
 import {
   exchangeCodeForTokens,
-  fetchGoogleUserEmail,
+  fetchGoogleUserProfile,
 } from "@/lib/google/oauth";
 import { publishSummaryJob } from "@/lib/summaries/qstash";
 
@@ -62,12 +63,18 @@ export async function GET(request: Request) {
 
     if (tokens.access_token) {
       try {
-        const googleEmail = await fetchGoogleUserEmail(tokens.access_token);
-        if (googleEmail) {
-          await setLineUserEmailByLineUserId(consumed.lineUserId, googleEmail);
+        const googleProfile = await fetchGoogleUserProfile(tokens.access_token);
+        if (googleProfile.email) {
+          await setLineUserEmailByLineUserId(consumed.lineUserId, googleProfile.email);
         }
-      } catch (emailErr) {
-        console.error("[google-oauth.callback.email]", emailErr);
+        if (googleProfile.name) {
+          await setLineUserGoogleDisplayNameByLineUserId(
+            consumed.lineUserId,
+            googleProfile.name
+          );
+        }
+      } catch (profileErr) {
+        console.error("[google-oauth.callback.profile]", profileErr);
       }
     }
 

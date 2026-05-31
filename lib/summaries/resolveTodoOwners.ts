@@ -4,6 +4,7 @@ export type TodoOwnerCandidate = {
   userId: number;
   displayName: string;
   email: string | null;
+  googleDisplayName: string | null;
 };
 
 export type ResolvedActionItem = ActionItem & {
@@ -25,6 +26,34 @@ function emailLocalTokens(email: string): string[] {
     .filter(Boolean);
 }
 
+function tokenMatchesName(token: string, part: string): boolean {
+  if (!token || !part) return false;
+  return token === part || token.startsWith(part) || part.startsWith(token);
+}
+
+function emailMatchesOwner(ownerParts: string[], email: string): boolean {
+  const tokens = emailLocalTokens(email);
+  if (tokens.length === 0 || ownerParts.length === 0) return false;
+
+  if (ownerParts.length === 1) {
+    return tokens.some((token) => tokenMatchesName(token, ownerParts[0]!));
+  }
+
+  const first = ownerParts[0]!;
+  const last = ownerParts[ownerParts.length - 1]!;
+  const firstMatch = tokens.some((token) => tokenMatchesName(token, first));
+  const lastMatch = tokens.some((token) => tokenMatchesName(token, last));
+  return firstMatch && lastMatch;
+}
+
+function matchesNameLabel(label: string, ownerLower: string, ownerNorm: string): boolean {
+  const trimmed = label.trim();
+  if (!trimmed) return false;
+  const labelLower = trimmed.toLowerCase();
+  if (labelLower === ownerLower) return true;
+  return normalizeName(trimmed) === ownerNorm;
+}
+
 export function matchOwnerToLineMember(
   owner: string,
   members: TodoOwnerCandidate[]
@@ -36,43 +65,40 @@ export function matchOwnerToLineMember(
   const ownerNorm = normalizeName(trimmed);
   const ownerParts = ownerLower.split(/\s+/).filter(Boolean);
 
-  const exact = members.find(
-    (member) => member.displayName.trim().toLowerCase() === ownerLower
-  );
-  if (exact) return exact;
-
-  const normalized = members.find(
-    (member) => normalizeName(member.displayName) === ownerNorm
-  );
-  if (normalized) return normalized;
-
-  if (ownerParts.length > 0) {
-    const partMatches = members.filter((member) => {
-      const displayLower = member.displayName.toLowerCase();
-      return ownerParts.every((part) => displayLower.includes(part));
-    });
-    if (partMatches.length === 1) return partMatches[0];
-  }
-
   for (const member of members) {
-    if (!member.email) continue;
-    const localNorm = normalizeName(emailLocalPart(member.email));
-    if (localNorm && localNorm === ownerNorm) return member;
-
-    const tokens = emailLocalTokens(member.email);
+    if (matchesNameLabel(member.displayName, ownerLower, ownerNorm)) {
+      return member;
+    }
     if (
-      ownerParts.length >= 2 &&
-      tokens.length >= 2 &&
-      ownerParts[0] === tokens[0] &&
-      ownerParts[ownerParts.length - 1] === tokens[tokens.length - 1]
+      member.googleDisplayName &&
+      matchesNameLabel(member.googleDisplayName, ownerLower, ownerNorm)
     ) {
       return member;
     }
   }
 
+  if (ownerParts.length > 0) {
+    const partMatches = members.filter((member) => {
+      const labels = [member.displayName, member.googleDisplayName]
+        .filter((label): label is string => Boolean(label?.trim()))
+        .map((label) => label.toLowerCase());
+      return labels.some((label) => ownerParts.every((part) => label.includes(part)));
+    });
+    if (partMatches.length === 1) return partMatches[0];
+  }
+
+  const emailMatches = members.filter(
+    (member) => member.email && emailMatchesOwner(ownerParts, member.email)
+  );
+  if (emailMatches.length === 1) return emailMatches[0];
+
   const partial = members.filter((member) => {
-    const displayLower = member.displayName.toLowerCase();
-    return displayLower.includes(ownerLower) || ownerLower.includes(displayLower);
+    const labels = [member.displayName, member.googleDisplayName]
+      .filter((label): label is string => Boolean(label?.trim()))
+      .map((label) => label.toLowerCase());
+    return labels.some(
+      (label) => label.includes(ownerLower) || ownerLower.includes(label)
+    );
   });
   if (partial.length === 1) return partial[0];
 
