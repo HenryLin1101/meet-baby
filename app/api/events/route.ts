@@ -10,6 +10,7 @@ import {
   updateEventCalendarData,
   upsertLineUser,
   getGroupDriveFolderId,
+  getGroupName,
   setEventDriveFolderId,
   upsertGroupDriveFolderId,
 } from "@/lib/db/repository";
@@ -164,7 +165,8 @@ export async function POST(request: Request) {
       let parentFolderId = await getGroupDriveFolderId(input.groupId);
 
       if (!parentFolderId) {
-        const groupFolder = await createDriveFolder({ name: "LINE 群組" });
+        const groupName = await getGroupName(input.groupId);
+        const groupFolder = await createDriveFolder({ name: groupName ?? "LINE 群組" });
         await setDriveFolderPermission({
           folderId: groupFolder.id,
           role: "writer",

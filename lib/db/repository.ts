@@ -1958,6 +1958,11 @@ export async function deleteTodoItem(input: {
 // Drive Folders
 // ---------------------------------------------------------------------------
 
+export async function getGroupName(lineGroupId: string): Promise<string | null> {
+  const group = await getChatGroupByLineGroupId(lineGroupId);
+  return group?.name ?? null;
+}
+
 export async function upsertGroupDriveFolderId(
   lineGroupId: string,
   driveFolderId: string
