@@ -13,8 +13,10 @@ const SUPPORTED_MIME_TYPES = new Set([
   "application/pdf",
 ]);
 
-export async function listDriveFolderFiles(folderId: string): Promise<DriveFileInfo[]> {
-  const accessToken = await getServiceAccountAccessToken();
+async function listFolderContents(folderId: string, accessToken: string): Promise<{
+  files: DriveFileInfo[];
+  subfolderIds: string[];
+}> {
   const params = new URLSearchParams({
     q: `'${folderId}' in parents and trashed=false`,
     fields: "files(id,name,mimeType,modifiedTime,webViewLink)",
@@ -29,12 +31,33 @@ export async function listDriveFolderFiles(folderId: string): Promise<DriveFileI
   );
 
   const json = (await res.json()) as {
-    files?: DriveFileInfo[];
+    files?: (DriveFileInfo & { mimeType: string })[];
     error?: { message?: string };
   };
   if (!res.ok) throw new Error(json.error?.message ?? "Drive list files failed");
 
-  return (json.files ?? []).filter((f) => SUPPORTED_MIME_TYPES.has(f.mimeType));
+  const all = json.files ?? [];
+  const files = all.filter((f) => SUPPORTED_MIME_TYPES.has(f.mimeType));
+  const subfolderIds = all
+    .filter((f) => f.mimeType === "application/vnd.google-apps.folder")
+    .map((f) => f.id);
+
+  return { files, subfolderIds };
+}
+
+export async function listDriveFolderFiles(folderId: string): Promise<DriveFileInfo[]> {
+  const accessToken = await getServiceAccountAccessToken();
+  const result: DriveFileInfo[] = [];
+  const queue: string[] = [folderId];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const { files, subfolderIds } = await listFolderContents(currentId, accessToken);
+    result.push(...files);
+    queue.push(...subfolderIds);
+  }
+
+  return result;
 }
 
 export async function readDriveFileAsText(file: DriveFileInfo): Promise<string | null> {
