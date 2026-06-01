@@ -8,9 +8,9 @@ export const maxDuration = 300;
 
 type ScanResult = {
   groupId: number;
-  fileId: string;
-  fileName: string;
-  status: "indexed" | "skipped" | "failed";
+  fileId?: string;
+  fileName?: string;
+  status: "indexed" | "skipped" | "failed" | "list_error";
   chunks?: number;
   error?: string;
 };
@@ -46,7 +46,9 @@ async function handleDriveScan() {
     try {
       files = await listDriveFolderFiles(group.drive_folder_id);
     } catch (err) {
+      const message = err instanceof Error ? err.message : "unknown error";
       console.error(`[drive-scan] 列出群組 ${group.id} 檔案失敗：`, err);
+      results.push({ groupId: group.id, status: "list_error", error: message });
       continue;
     }
 
