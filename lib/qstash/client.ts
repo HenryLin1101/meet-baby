@@ -45,3 +45,7 @@ export function createQStashClient(token = requireEnv("QSTASH_TOKEN")) {
 export function getEventReminderCallbackUrl(): string {
   return new URL("/api/qstash/event-reminder", getAppBaseUrlOrThrow()).toString();
 }
+
+export function getDriveScanCallbackUrl(): string {
+  return new URL("/api/qstash/drive-scan", getAppBaseUrlOrThrow()).toString();
+}
