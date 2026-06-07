@@ -2205,7 +2205,7 @@ export async function setEventDriveFolderId(
 
 export async function listRecentGroupEvents(
   lineGroupId: string,
-  limitDays = 7
+  limitDays = 10
 ): Promise<Array<{ eventId: number; title: string; startsAt: string }>> {
   const supabase = getSupabaseAdmin();
   const group = await getChatGroupByLineGroupId(lineGroupId);
@@ -2219,8 +2219,7 @@ export async function listRecentGroupEvents(
     .select("id, title, starts_at")
     .eq("group_id", group.id)
     .gte("starts_at", since.toISOString())
-    .order("starts_at", { ascending: false })
-    .limit(5);
+    .order("starts_at", { ascending: false });
 
   if (error) {
     console.error("[listRecentGroupEvents]", error);
