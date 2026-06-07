@@ -77,33 +77,57 @@ export async function setDriveFolderPermission(input: {
   }
 }
 
-export async function renameDriveFolder(
-  folderId: string,
-  name: string
-): Promise<void> {
+export async function uploadTextAsGoogleDoc(input: {
+  folderId: string;
+  name: string;
+  text: string;
+}): Promise<string> {
   const accessToken = await getServiceAccountAccessToken();
 
+  const boundary = "meet_baby_upload_boundary";
+  const metadata = JSON.stringify({
+    name: input.name,
+    mimeType: "application/vnd.google-apps.document",
+    parents: [input.folderId],
+  });
+  const multipart = [
+    `--${boundary}`,
+    "Content-Type: application/json; charset=UTF-8",
+    "",
+    metadata,
+    `--${boundary}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "",
+    input.text,
+    `--${boundary}--`,
+  ].join("\r\n");
+
   const response = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}`,
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
     {
-      method: "PATCH",
+      method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
+        "Content-Type": `multipart/related; boundary=${boundary}`,
       },
-      body: JSON.stringify({ name }),
+      body: multipart,
       cache: "no-store",
     }
   );
 
+  const json = (await response.json().catch(() => null)) as {
+    id?: string;
+    error?: { message?: string };
+  } | null;
   if (!response.ok) {
-    const json = (await response
-      .json()
-      .catch(() => null)) as { error?: { message?: string } } | null;
     throw new Error(
-      `Drive rename folder error: ${json?.error?.message ?? response.status}`
+      `Drive upload error: ${json?.error?.message ?? response.status}`
     );
   }
+  if (!json?.id) {
+    throw new Error("Drive upload returned no file ID.");
+  }
+  return json.id;
 }
 
 export function formatMeetingFolderName(title: string, startsAt: string): string {

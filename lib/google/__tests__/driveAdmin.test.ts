@@ -67,6 +67,60 @@ describe("createDriveFolder", () => {
   });
 });
 
+describe("uploadTextAsGoogleDoc", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: "new-doc-id-456" }),
+      })
+    );
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("calls Drive multipart upload with Google Doc mimeType and correct text", async () => {
+    const { uploadTextAsGoogleDoc } = await import("@/lib/google/driveAdmin");
+    const fileId = await uploadTextAsGoogleDoc({
+      folderId: "folder-abc",
+      name: "會議摘要",
+      text: "重點：測試成功",
+    });
+
+    expect(fileId).toBe("new-doc-id-456");
+    expect(fetch).toHaveBeenCalledWith(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer fake-token",
+        }),
+      })
+    );
+    const callBody = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body as string;
+    expect(callBody).toContain('"name":"會議摘要"');
+    expect(callBody).toContain('"mimeType":"application/vnd.google-apps.document"');
+    expect(callBody).toContain('"parents":["folder-abc"]');
+    expect(callBody).toContain("重點：測試成功");
+  });
+
+  it("throws when Drive upload API returns an error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: { message: "Forbidden" } }),
+      })
+    );
+    const { uploadTextAsGoogleDoc } = await import("@/lib/google/driveAdmin");
+    await expect(
+      uploadTextAsGoogleDoc({ folderId: "f", name: "摘要", text: "t" })
+    ).rejects.toThrow("Forbidden");
+  });
+});
+
 describe("setDriveFolderPermission", () => {
   it("calls Drive permissions API with anyone/writer", async () => {
     vi.stubGlobal(
