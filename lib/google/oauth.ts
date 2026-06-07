@@ -41,6 +41,9 @@ export function getGoogleOAuthRedirectUri(): string {
 export const GOOGLE_DRIVE_READONLY_SCOPE =
   "https://www.googleapis.com/auth/drive.readonly";
 
+export const GOOGLE_DRIVE_FILE_SCOPE =
+  "https://www.googleapis.com/auth/drive.file";
+
 export const GOOGLE_CALENDAR_EVENTS_SCOPE =
   "https://www.googleapis.com/auth/calendar.events";
 
@@ -53,7 +56,9 @@ export function buildGoogleOAuthConsentUrl(input: {
 }): string {
   const clientId = getGoogleClientIdOrThrow();
   const redirectUri = getGoogleOAuthRedirectUri();
-  const baseScopes = input.scopes?.length ? input.scopes : [GOOGLE_DRIVE_READONLY_SCOPE];
+  const baseScopes = input.scopes?.length
+    ? input.scopes
+    : [GOOGLE_DRIVE_READONLY_SCOPE, GOOGLE_DRIVE_FILE_SCOPE];
   const scopes = Array.from(
     new Set([...baseScopes, "openid", "email", GOOGLE_USERINFO_PROFILE_SCOPE])
   );
