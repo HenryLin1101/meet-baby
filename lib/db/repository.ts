@@ -2218,6 +2218,7 @@ export async function listRecentGroupEvents(
     .from("events")
     .select("id, title, starts_at")
     .eq("group_id", group.id)
+    .eq("status", "scheduled")
     .gte("starts_at", since.toISOString())
     .order("starts_at", { ascending: false });
 
