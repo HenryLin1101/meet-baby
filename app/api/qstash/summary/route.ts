@@ -153,6 +153,7 @@ async function handleSummaryJob(request: Request) {
     });
 
     if (details.meetingDriveFolderId) {
+      const driveErrors: string[] = [];
       try {
         await copyFileToFolder({
           fileId: details.sourceDriveFileId,
@@ -160,7 +161,9 @@ async function handleSummaryJob(request: Request) {
           refreshToken: credential.refreshToken,
         });
       } catch (copyErr) {
-        console.error("[qstash.summary.copy-transcript]", copyErr);
+        const msg = copyErr instanceof Error ? copyErr.message : String(copyErr);
+        console.error("[qstash.summary.copy-transcript]", msg);
+        driveErrors.push("copy: " + msg);
       }
 
       try {
@@ -171,7 +174,19 @@ async function handleSummaryJob(request: Request) {
           refreshToken: credential.refreshToken,
         });
       } catch (uploadErr) {
-        console.error("[qstash.summary.upload-summary]", uploadErr);
+        const msg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+        console.error("[qstash.summary.upload-summary]", msg);
+        driveErrors.push("upload: " + msg);
+      }
+
+      if (driveErrors.length > 0) {
+        console.error("[qstash.summary.drive-errors]", driveErrors.join(" | "));
+        try {
+          await client.pushMessage({
+            to: details.lineGroupId,
+            messages: [{ type: "text", text: "[debug] Drive 存檔錯誤：" + driveErrors.join(" | ") }],
+          });
+        } catch { /* ignore */ }
       }
     }
 
