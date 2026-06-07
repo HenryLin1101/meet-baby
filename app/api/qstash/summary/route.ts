@@ -10,9 +10,8 @@ import {
 } from "@/lib/db/repository";
 import { refreshGoogleProfilesForLineUsers } from "@/lib/google/syncUserProfile";
 import { resolveActionItemOwners } from "@/lib/summaries/resolveTodoOwners";
-import { exportGoogleDocAsPlainText, copyFileToFolder } from "@/lib/google/drive";
+import { exportGoogleDocAsPlainText, copyFileToFolder, uploadTextAsGoogleDocForUser } from "@/lib/google/drive";
 import { GoogleRefreshTokenInvalidError } from "@/lib/google/oauth";
-import { uploadTextAsGoogleDoc } from "@/lib/google/driveAdmin";
 import { createMessagingClient } from "@/lib/line/messagingClient";
 import {
   formatMeetingSummaryForLine,
@@ -165,10 +164,11 @@ async function handleSummaryJob(request: Request) {
       }
 
       try {
-        await uploadTextAsGoogleDoc({
+        await uploadTextAsGoogleDocForUser({
           folderId: details.meetingDriveFolderId,
           name: "會議摘要",
           text: summaryText,
+          refreshToken: credential.refreshToken,
         });
       } catch (uploadErr) {
         console.error("[qstash.summary.upload-summary]", uploadErr);

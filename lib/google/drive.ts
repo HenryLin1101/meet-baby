@@ -157,6 +157,46 @@ export async function exportGoogleDocAsPlainText(input: {
   return { title: name, text: content.trim() };
 }
 
+export async function uploadTextAsGoogleDocForUser(input: {
+  folderId: string;
+  name: string;
+  text: string;
+  refreshToken: string;
+}): Promise<string> {
+  const { accessToken } = await refreshAccessToken(input.refreshToken);
+
+  const boundary = "meet_baby_upload_boundary";
+  const metadata = JSON.stringify({
+    name: input.name,
+    mimeType: "application/vnd.google-apps.document",
+    parents: [input.folderId],
+  });
+  const multipart = [
+    `--${boundary}`,
+    "Content-Type: application/json; charset=UTF-8",
+    "",
+    metadata,
+    `--${boundary}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "",
+    input.text,
+    `--${boundary}--`,
+  ].join("\r\n");
+
+  const json = await googleFetchJson<{ id?: string }>(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
+    accessToken,
+    {
+      method: "POST",
+      headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+      body: multipart,
+    }
+  );
+
+  if (!json.id) throw new Error("Drive upload returned no file ID.");
+  return json.id;
+}
+
 export async function copyFileToFolder(input: {
   fileId: string;
   folderId: string;
