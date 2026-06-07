@@ -32,6 +32,10 @@ describe("parseMeetingSelection", () => {
     expect(parseMeetingSelection("hello", options)).toEqual({ matched: false });
     expect(parseMeetingSelection("", options)).toEqual({ matched: false });
   });
+
+  it("部分數字加文字回傳 matched=false（例如 '1abc'）", () => {
+    expect(parseMeetingSelection("1abc", options)).toEqual({ matched: false });
+  });
 });
 
 describe("buildQuickRepliesFromOptions", () => {

@@ -19,6 +19,7 @@ export async function buildMeetingSelectionReplies(lineGroupId: string): Promise
   quickReplies: QuickReplyOption[];
 }> {
   const recent = await listRecentGroupEvents(lineGroupId, 7);
+  // DB query already limits to 5; slice guards against future changes
   const options = recent.slice(0, MAX_MEETINGS);
   return { options, quickReplies: buildQuickRepliesFromOptions(options) };
 }
@@ -40,8 +41,9 @@ export function parseMeetingSelection(
 ): MeetingSelectionResult {
   const trimmed = text.trim();
   if (trimmed === SKIP_TEXT) return { matched: true, eventId: null };
-  const index = parseInt(trimmed, 10) - 1;
-  if (!Number.isFinite(index) || index < 0 || index >= options.length) {
+  if (!/^\d+$/.test(trimmed)) return { matched: false };
+  const index = Number(trimmed) - 1;
+  if (index < 0 || index >= options.length) {
     return { matched: false };
   }
   return { matched: true, eventId: options[index].eventId };
