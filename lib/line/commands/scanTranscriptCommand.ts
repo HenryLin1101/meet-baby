@@ -83,6 +83,9 @@ export class ScanTranscriptCommand extends CommandHandlerBase {
     }
 
     const hostLineUserId = String(state.data.hostLineUserId ?? "");
+    if (!hostLineUserId) {
+      return { reply: "發生錯誤，請重新輸入「掃描逐字稿」。", next: "end" };
+    }
     const lineGroupId = context.lineGroupId ?? "";
 
     return {
