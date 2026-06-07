@@ -235,6 +235,7 @@ export type SummaryProcessingDetails = {
   sourceDriveUrl: string;
   sourceDriveFileId: string;
   eventId: number | null;
+  meetingDriveFolderId: string | null;
 };
 
 /** API 回傳給前端的待辦事項格式（camelCase） */
@@ -429,6 +430,7 @@ type GoogleOAuthStateRow = {
 
 type EventSummaryRow = {
   id: number;
+  event_id: number | null;
   group_id: number;
   requested_by_user_id: number;
   source_drive_url: string;
@@ -438,7 +440,6 @@ type EventSummaryRow = {
   completed_at: string | null;
   last_error: string | null;
   qstash_message_id: string | null;
-  event_id: number | null;
 };
 
 export async function ensureChatGroup(
@@ -1434,6 +1435,18 @@ export async function getEventSummaryProcessingDetails(
     throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
   }
 
+  const eventId = summary.event_id ? Number(summary.event_id) : null;
+  let meetingDriveFolderId: string | null = null;
+  if (eventId) {
+    const { data: event, error: eventError } = await supabase
+      .from("events")
+      .select("drive_folder_id")
+      .eq("id", eventId)
+      .maybeSingle<{ drive_folder_id: string | null }>();
+    assertNoError(eventError, "讀取活動 Drive 資料夾 ID 失敗。");
+    meetingDriveFolderId = event?.drive_folder_id ?? null;
+  }
+
   return {
     summaryId: Number(summary.id),
     groupId: Number(summary.group_id),
@@ -1441,10 +1454,8 @@ export async function getEventSummaryProcessingDetails(
     requestedByLineUserId: String(user.line_user_id),
     sourceDriveUrl: String(summary.source_drive_url),
     sourceDriveFileId: String(summary.source_drive_file_id),
-    eventId:
-      typeof summary.event_id === "number" && Number.isFinite(Number(summary.event_id))
-        ? Number(summary.event_id)
-        : null,
+    eventId,
+    meetingDriveFolderId,
   };
 }
 
@@ -2192,6 +2203,39 @@ export async function setEventDriveFolderId(
   assertNoError(error, "更新活動 Drive 資料夾 ID 失敗。");
 }
 
+export async function listRecentGroupEvents(
+  lineGroupId: string,
+  limitDays = 7
+): Promise<Array<{ eventId: number; title: string; startsAt: string }>> {
+  const supabase = getSupabaseAdmin();
+  const group = await getChatGroupByLineGroupId(lineGroupId);
+  if (!group) return [];
+
+  const since = new Date();
+  since.setDate(since.getDate() - limitDays);
+
+  const { data, error } = await supabase
+    .from("events")
+    .select("id, title, starts_at")
+    .eq("group_id", group.id)
+    .gte("starts_at", since.toISOString())
+    .order("starts_at", { ascending: false })
+    .limit(5);
+
+  if (error) {
+    console.error("[listRecentGroupEvents]", error);
+    return [];
+  }
+
+  return ((data ?? []) as Array<{ id: number; title: string; starts_at: string }>).map(
+    (row) => ({
+      eventId: Number(row.id),
+      title: String(row.title),
+      startsAt: new Date(row.starts_at).toISOString(),
+    })
+  );
+}
+
 export type MutableEventContext = {
   eventId: number;
   groupId: number;
@@ -2450,4 +2494,3 @@ export async function updateEventForUser(input: {
   const next = await loadMutableEventForUser(input.eventId, input.requesterLineUserId);
   return { previous, next, timeChanged };
 }
-

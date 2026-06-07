@@ -5,7 +5,14 @@ import {
   type CommandContext,
   type ConversationUpdate,
 } from "@/lib/modules/types";
+import type { ConversationState } from "@/lib/conversation/state";
 import { runTactiqScanForGroup } from "@/lib/summaries/tactiqScan";
+import {
+  buildMeetingSelectionReplies,
+  buildQuickRepliesFromOptions,
+  parseMeetingSelection,
+  type MeetingOption,
+} from "@/lib/line/meetingSelection";
 
 export class ScanTranscriptCommand extends CommandHandlerBase {
   readonly name = "scan-transcript";
@@ -40,9 +47,66 @@ export class ScanTranscriptCommand extends CommandHandlerBase {
       return buildConsentReply("需要 Google Drive 授權才能掃描 Tactiq 逐字稿。");
     }
 
+    const { options, quickReplies } = await buildMeetingSelectionReplies(
+      context.lineGroupId
+    );
+
+    if (options.length === 0) {
+      return this.doScan(context.lineGroupId, hostLineUserId, null);
+    }
+
+    return {
+      reply: "這是哪場會議的逐字稿？（選擇後開始掃描 Tactiq Drive 資料夾）",
+      quickReplies,
+      next: {
+        step: "awaiting_meeting",
+        data: { hostLineUserId, options },
+      },
+    };
+  }
+
+  async continueConversation(
+    state: ConversationState,
+    context: CommandContext
+  ): Promise<ConversationUpdate> {
+    if (state.step !== "awaiting_meeting") {
+      return { reply: "發生錯誤，請重新輸入「掃描逐字稿」。", next: "end" };
+    }
+
+    const options = Array.isArray(state.data.options)
+      ? (state.data.options as MeetingOption[])
+      : [];
+    const selection = parseMeetingSelection(context.rawText, options);
+
+    if (!selection.matched) {
+      return {
+        reply: "請點選下方按鈕選擇會議，或按「不指定」跳過。",
+        quickReplies: buildQuickRepliesFromOptions(options),
+        next: { step: state.step, data: state.data },
+      };
+    }
+
+    const hostLineUserId = String(state.data.hostLineUserId ?? "");
+    if (!hostLineUserId) {
+      return { reply: "發生錯誤，請重新輸入「掃描逐字稿」。", next: "end" };
+    }
+    const lineGroupId = context.lineGroupId ?? "";
+
+    return {
+      ...(await this.doScan(lineGroupId, hostLineUserId, selection.eventId)),
+      next: "end",
+    };
+  }
+
+  private async doScan(
+    lineGroupId: string,
+    hostLineUserId: string,
+    eventId: number | null
+  ): Promise<ConversationUpdate> {
     const result = await runTactiqScanForGroup({
-      lineGroupId: context.lineGroupId,
+      lineGroupId,
       hostLineUserId,
+      eventId,
     });
 
     if (result.status === "started") {
@@ -52,7 +116,9 @@ export class ScanTranscriptCommand extends CommandHandlerBase {
     }
 
     if (result.status === "failed" && result.message === "google_reauth_required") {
-      return buildConsentReply("Google 授權已過期，需要重新授權才能掃描逐字稿。");
+      return {
+        reply: "Google 授權已過期，請輸入「掃描逐字稿」後按照指示重新完成授權。",
+      };
     }
 
     if (result.status === "failed" && result.message === "transcript_not_found") {

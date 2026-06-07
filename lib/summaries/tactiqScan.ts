@@ -226,6 +226,7 @@ export async function runTactiqScanForGroup(input: {
   lineGroupId: string;
   hostLineUserId: string;
   lookbackHours?: number;
+  eventId?: number | null;
 }): Promise<TactiqScanResult> {
   const hostLineUserId =
     process.env.TACTIQ_HOST_LINE_USER_ID?.trim() || input.hostLineUserId;
@@ -268,6 +269,7 @@ export async function runTactiqScanForGroup(input: {
     hostLineUserId,
     sourceDriveFileId: picked.fileId,
     sourceDriveUrl: picked.webViewLink,
+    eventId: input.eventId ?? null,
   });
 
   return { status: "started", summaryId, fileId: picked.fileId };

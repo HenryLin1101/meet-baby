@@ -157,3 +157,28 @@ export async function exportGoogleDocAsPlainText(input: {
   return { title: name, text: content.trim() };
 }
 
+export async function copyFileToFolder(input: {
+  fileId: string;
+  folderId: string;
+  refreshToken: string;
+}): Promise<string> {
+  const { accessToken } = await refreshAccessToken(input.refreshToken);
+
+  const json = await googleFetchJson<{ id?: string }>(
+    driveApiUrl(
+      `/files/${encodeURIComponent(input.fileId)}/copy?supportsAllDrives=true`
+    ),
+    accessToken,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parents: [input.folderId] }),
+    }
+  );
+
+  if (!json.id) {
+    throw new Error("Drive copy returned no file ID.");
+  }
+  return json.id;
+}
+
