@@ -2,6 +2,7 @@ import { createGoogleOAuthState } from "@/lib/db/repository";
 import {
   buildGoogleOAuthConsentUrl,
   GOOGLE_CALENDAR_EVENTS_SCOPE,
+  GOOGLE_DRIVE_FILE_SCOPE,
   GOOGLE_DRIVE_READONLY_SCOPE,
 } from "@/lib/google/oauth";
 
@@ -65,7 +66,7 @@ export async function GET(request: Request) {
 
   const authUrl = buildGoogleOAuthConsentUrl({
     state,
-    scopes: [GOOGLE_DRIVE_READONLY_SCOPE, GOOGLE_CALENDAR_EVENTS_SCOPE],
+    scopes: [GOOGLE_DRIVE_READONLY_SCOPE, GOOGLE_DRIVE_FILE_SCOPE, GOOGLE_CALENDAR_EVENTS_SCOPE],
   });
 
   return redirect(authUrl);
