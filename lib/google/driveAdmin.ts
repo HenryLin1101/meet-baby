@@ -77,6 +77,35 @@ export async function setDriveFolderPermission(input: {
   }
 }
 
+export async function renameDriveFolder(
+  folderId: string,
+  name: string
+): Promise<void> {
+  const accessToken = await getServiceAccountAccessToken();
+
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name }),
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    const json = (await response
+      .json()
+      .catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(
+      `Drive rename folder error: ${json?.error?.message ?? response.status}`
+    );
+  }
+}
+
 export function formatMeetingFolderName(title: string, startsAt: string): string {
   const date = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei",

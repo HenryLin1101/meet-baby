@@ -1993,6 +1993,23 @@ export async function getGroupDriveFolderId(
   return data?.drive_folder_id ?? null;
 }
 
+export async function listGroupsNeedingFolderNameFix(): Promise<
+  { lineGroupId: string; driveFolderId: string; currentName: string | null }[]
+> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("chat_groups")
+    .select("line_group_id, drive_folder_id, name")
+    .not("drive_folder_id", "is", null)
+    .or("name.is.null,name.eq.LINE 群組");
+  assertNoError(error, "讀取群組列表失敗。");
+  return (data ?? []).map((row) => ({
+    lineGroupId: (row as { line_group_id: string }).line_group_id,
+    driveFolderId: (row as { drive_folder_id: string }).drive_folder_id,
+    currentName: (row as { name: string | null }).name,
+  }));
+}
+
 export async function setEventDriveFolderId(
   eventId: number,
   driveFolderId: string
