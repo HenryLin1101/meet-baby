@@ -225,6 +225,8 @@ export type SummaryProcessingDetails = {
   requestedByLineUserId: string;
   sourceDriveUrl: string;
   sourceDriveFileId: string;
+  eventId: number | null;
+  meetingDriveFolderId: string | null;
 };
 
 /** API 回傳給前端的待辦事項格式（camelCase） */
@@ -419,6 +421,7 @@ type GoogleOAuthStateRow = {
 
 type EventSummaryRow = {
   id: number;
+  event_id: number | null;
   group_id: number;
   requested_by_user_id: number;
   source_drive_url: string;
@@ -1313,7 +1316,7 @@ export async function getEventSummaryProcessingDetails(
   const { data: summary, error: summaryError } = await supabase
     .from("event_summaries")
     .select(
-      "id, group_id, requested_by_user_id, source_drive_url, source_drive_file_id, status, processing_at, completed_at, last_error, qstash_message_id"
+      "id, event_id, group_id, requested_by_user_id, source_drive_url, source_drive_file_id, status, processing_at, completed_at, last_error, qstash_message_id"
     )
     .eq("id", normalizedSummaryId)
     .maybeSingle<EventSummaryRow>();
@@ -1340,6 +1343,18 @@ export async function getEventSummaryProcessingDetails(
     throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
   }
 
+  const eventId = summary.event_id ? Number(summary.event_id) : null;
+  let meetingDriveFolderId: string | null = null;
+  if (eventId) {
+    const { data: event, error: eventError } = await supabase
+      .from("events")
+      .select("drive_folder_id")
+      .eq("id", eventId)
+      .maybeSingle<{ drive_folder_id: string | null }>();
+    assertNoError(eventError, "讀取活動 Drive 資料夾 ID 失敗。");
+    meetingDriveFolderId = event?.drive_folder_id ?? null;
+  }
+
   return {
     summaryId: Number(summary.id),
     groupId: Number(summary.group_id),
@@ -1347,6 +1362,8 @@ export async function getEventSummaryProcessingDetails(
     requestedByLineUserId: String(user.line_user_id),
     sourceDriveUrl: String(summary.source_drive_url),
     sourceDriveFileId: String(summary.source_drive_file_id),
+    eventId,
+    meetingDriveFolderId,
   };
 }
 
@@ -1991,23 +2008,6 @@ export async function getGroupDriveFolderId(
     .maybeSingle<{ drive_folder_id: string | null }>();
   assertNoError(error, "讀取群組 Drive 資料夾 ID 失敗。");
   return data?.drive_folder_id ?? null;
-}
-
-export async function listGroupsNeedingFolderNameFix(): Promise<
-  { lineGroupId: string; driveFolderId: string; currentName: string | null }[]
-> {
-  const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("chat_groups")
-    .select("line_group_id, drive_folder_id, name")
-    .not("drive_folder_id", "is", null)
-    .or("name.is.null,name.eq.LINE 群組");
-  assertNoError(error, "讀取群組列表失敗。");
-  return (data ?? []).map((row) => ({
-    lineGroupId: (row as { line_group_id: string }).line_group_id,
-    driveFolderId: (row as { drive_folder_id: string }).drive_folder_id,
-    currentName: (row as { name: string | null }).name,
-  }));
 }
 
 export async function setEventDriveFolderId(
