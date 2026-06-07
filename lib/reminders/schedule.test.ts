@@ -10,7 +10,7 @@ describe("resolveReminderScheduleTime", () => {
     const now = new Date("2026-04-21T10:00:00.000Z");
     const startsAt = new Date(now.getTime() + 30 * 60 * 1000);
 
-    const reminderTime = resolveReminderScheduleTime(startsAt, now);
+    const reminderTime = resolveReminderScheduleTime(startsAt, undefined, now);
 
     expect(reminderTime?.toISOString()).toBe(
       new Date(startsAt.getTime() - EVENT_REMINDER_LEAD_TIME_MS).toISOString()
@@ -21,7 +21,7 @@ describe("resolveReminderScheduleTime", () => {
     const now = new Date("2026-04-21T10:00:00.000Z");
     const startsAt = new Date(now.getTime() + 2 * 60 * 1000);
 
-    const reminderTime = resolveReminderScheduleTime(startsAt, now);
+    const reminderTime = resolveReminderScheduleTime(startsAt, undefined, now);
 
     expect(reminderTime?.toISOString()).toBe("2026-04-21T10:00:05.000Z");
   });
@@ -30,7 +30,7 @@ describe("resolveReminderScheduleTime", () => {
     const now = new Date("2026-04-21T10:00:00.000Z");
     const startsAt = new Date("2026-04-21T09:59:59.000Z");
 
-    expect(resolveReminderScheduleTime(startsAt, now)).toBeNull();
+    expect(resolveReminderScheduleTime(startsAt, undefined, now)).toBeNull();
   });
 });
 

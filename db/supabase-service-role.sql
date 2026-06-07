@@ -27,7 +27,8 @@ CREATE OR REPLACE FUNCTION public.create_event_with_attendees(
   p_starts_at TIMESTAMPTZ DEFAULT NULL,
   p_ends_at TIMESTAMPTZ DEFAULT NULL,
   p_timezone TEXT DEFAULT 'Asia/Taipei',
-  p_attendee_user_ids BIGINT[] DEFAULT ARRAY[]::BIGINT[]
+  p_attendee_user_ids BIGINT[] DEFAULT ARRAY[]::BIGINT[],
+  p_reminder_lead_time_minutes INTEGER DEFAULT 10
 )
 RETURNS TABLE (
   event_id BIGINT,
@@ -127,7 +128,8 @@ BEGIN
     location,
     starts_at,
     ends_at,
-    timezone
+    timezone,
+    reminder_lead_time_minutes
   )
   VALUES (
     v_group_id,
@@ -137,7 +139,8 @@ BEGIN
     NULLIF(btrim(COALESCE(p_location, '')), ''),
     p_starts_at,
     p_ends_at,
-    COALESCE(NULLIF(btrim(COALESCE(p_timezone, '')), ''), 'Asia/Taipei')
+    COALESCE(NULLIF(btrim(COALESCE(p_timezone, '')), ''), 'Asia/Taipei'),
+    GREATEST(COALESCE(p_reminder_lead_time_minutes, 10), 1)
   )
   RETURNING id INTO v_event_id;
 

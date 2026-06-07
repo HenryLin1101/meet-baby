@@ -3,16 +3,22 @@ import {
   createTodoItemsFromSummary,
   getEventSummaryProcessingDetails,
   getGoogleCredentialByLineUserId,
+  listTodoOwnerCandidatesForSummary,
   markEventSummaryCompleted,
   markEventSummaryFailed,
+  markGoogleCredentialRevoked,
 } from "@/lib/db/repository";
+import { refreshGoogleProfilesForLineUsers } from "@/lib/google/syncUserProfile";
+import { resolveActionItemOwners } from "@/lib/summaries/resolveTodoOwners";
 import { exportGoogleDocAsPlainText, copyFileToFolder } from "@/lib/google/drive";
+import { GoogleRefreshTokenInvalidError } from "@/lib/google/oauth";
 import { uploadTextAsGoogleDoc } from "@/lib/google/driveAdmin";
 import { createMessagingClient } from "@/lib/line/messagingClient";
 import {
   formatMeetingSummaryForLine,
   summarizeMeetingTranscript,
 } from "@/lib/ai/openai";
+import { indexSummary } from "@/lib/ai/indexSummary";
 import { getAppBaseUrlOrThrow } from "@/lib/qstash/client";
 
 export const runtime = "nodejs";
@@ -51,53 +57,99 @@ async function handleSummaryJob(request: Request) {
 
   const client = createMessagingClient();
 
+  // Pushes the Google consent link to the group and marks the summary failed.
+  // Used both when no credential exists and when a stored token is rejected.
+  const promptGoogleConsentAndFail = async (failureReason: string) => {
+    // This summary is being marked failed (it cannot be re-claimed once it
+    // leaves "pending"), so the user must re-trigger after authorizing — we
+    // don't promise auto-resume here.
+    const consentUrl = new URL("/api/google/oauth/consent", getAppBaseUrlOrThrow());
+    consentUrl.searchParams.set("lineUserId", details.requestedByLineUserId);
+    consentUrl.searchParams.set("groupId", details.lineGroupId);
+    const msg = [
+      "我需要 Google Drive 授權才能讀取逐字稿。",
+      "請用 Safari/Chrome 開啟下方連結完成授權（LINE 內建瀏覽器會被 Google 擋）。",
+      consentUrl.toString(),
+      "授權完成後，請回到群組再把逐字稿連結貼一次給我。",
+    ].join("\n");
+
+    await client.pushMessage({
+      to: details.lineGroupId,
+      messages: [{ type: "text", text: msg }],
+    });
+
+    await markEventSummaryFailed({ summaryId, message: failureReason });
+    return Response.json({ ok: true, failed: failureReason });
+  };
+
   try {
     const credential = await getGoogleCredentialByLineUserId(
       details.requestedByLineUserId
     );
     if (!credential) {
-      const consentUrl = new URL("/api/google/oauth/consent", getAppBaseUrlOrThrow());
-      consentUrl.searchParams.set("lineUserId", details.requestedByLineUserId);
-      consentUrl.searchParams.set("groupId", details.lineGroupId);
-      const msg = [
-        "我需要 Google Drive 授權才能讀取逐字稿。",
-        "請用 Safari/Chrome 開啟下方連結完成授權（LINE 內建瀏覽器會被 Google 擋）。",
-        consentUrl.toString(),
-        "授權完成後，請回到群組再把逐字稿連結貼一次給我。",
-      ].join("\n");
-
-      await client.pushMessage({
-        to: details.lineGroupId,
-        messages: [{ type: "text", text: msg }],
-      });
-
-      await markEventSummaryFailed({
-        summaryId,
-        message: "missing_google_credential",
-      });
-      return Response.json({ ok: true, failed: "missing_google_credential" });
+      return await promptGoogleConsentAndFail("missing_google_credential");
     }
 
-    const exported = await exportGoogleDocAsPlainText({
-      fileId: details.sourceDriveFileId,
-      refreshToken: credential.refreshToken,
-    });
+    let exported;
+    try {
+      exported = await exportGoogleDocAsPlainText({
+        fileId: details.sourceDriveFileId,
+        refreshToken: credential.refreshToken,
+      });
+    } catch (err) {
+      if (err instanceof GoogleRefreshTokenInvalidError) {
+        // Token expired/revoked — drop the dead credential and re-prompt so the
+        // next consent auto-resumes this summary via the callback's summaryId.
+        await markGoogleCredentialRevoked(details.requestedByLineUserId);
+        return await promptGoogleConsentAndFail("google_reauth_required");
+      }
+      throw err;
+    }
 
     const summary = await summarizeMeetingTranscript({
       title: exported.title,
       transcript: exported.text,
     });
 
+    const ownerCandidates = await listTodoOwnerCandidatesForSummary({
+      lineGroupId: details.lineGroupId,
+      eventId: details.eventId,
+    });
+    await refreshGoogleProfilesForLineUsers(
+      ownerCandidates.map((candidate) => candidate.lineUserId)
+    );
+    const refreshedCandidates = await listTodoOwnerCandidatesForSummary({
+      lineGroupId: details.lineGroupId,
+      eventId: details.eventId,
+    });
+    const resolvedActionItems = resolveActionItemOwners(
+      summary.actionItems,
+      refreshedCandidates.map((member) => ({
+        userId: member.userId,
+        displayName: member.displayName,
+        email: member.email,
+        googleDisplayName: member.googleDisplayName,
+      }))
+    );
+    const resolvedSummary = {
+      ...summary,
+      actionItems: resolvedActionItems.map(({ item, owner, due }) => ({
+        item,
+        owner,
+        due,
+      })),
+    };
+
     const summaryText = formatMeetingSummaryForLine({
       title: exported.title,
-      summary,
+      summary: resolvedSummary,
       sourceUrl: details.sourceDriveUrl,
     });
 
     await markEventSummaryCompleted({
       summaryId,
       transcriptText: exported.text,
-      summaryJson: summary,
+      summaryJson: resolvedSummary,
       summaryText,
     });
 
@@ -124,15 +176,29 @@ async function handleSummaryJob(request: Request) {
     }
 
     try {
-      if (summary.actionItems.length > 0) {
+      if (resolvedActionItems.length > 0) {
         await createTodoItemsFromSummary({
           summaryId,
           groupId: details.groupId,
-          items: summary.actionItems,
+          items: resolvedActionItems,
         });
       }
     } catch (todoErr) {
       console.error("[qstash.summary.todo-items]", todoErr);
+    }
+
+    try {
+      await indexSummary({
+        summaryId,
+        groupId: details.groupId,
+        meetingTitle: exported.title ?? "",
+        summaryJson: resolvedSummary,
+        summaryText,
+        transcriptText: exported.text,
+        completedAt: new Date().toISOString(),
+      });
+    } catch (indexErr) {
+      console.error("[qstash.summary.index]", indexErr);
     }
 
     await client.pushMessage({

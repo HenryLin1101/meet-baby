@@ -11,6 +11,7 @@ import {
 import { initLiffOrThrow } from "@/lib/liff/client";
 import MascotLoadingScreen from "@/lib/liff/MascotLoadingScreen";
 import { LIFF_ID, MISSING_LIFF_ENV_MSG } from "@/lib/liff/utils";
+import MemberMultiSelect from "@/lib/tools/MemberMultiSelect";
 
 /** LIFF Dashboard：淺灰質感 + 吉祥物電光藍（#00C2FF） */
 const THEME = {
@@ -54,6 +55,7 @@ type DashboardGroup = {
 
 type MeetingItem = {
   id: string;
+  eventId: number;
   title: string;
   date: string;
   time: string;
@@ -64,6 +66,13 @@ type MeetingItem = {
   groupPictureUrl: string | null;
   groupColor: string;
   startsAtIso: string;
+  timezone: string;
+  description: string | null;
+  meetingUrl: string | null;
+  driveFolderUrl: string | null;
+  summary: string | null;
+  ownerLineUserId: string | null;
+  allowOthersToModify: boolean;
 };
 
 type DashboardEvent = {
@@ -77,6 +86,11 @@ type DashboardEvent = {
   timezone: string;
   status: string;
   ownerDisplayName: string;
+  ownerLineUserId: string | null;
+  meetingUrl: string | null;
+  driveFolderId: string | null;
+  summary: string | null;
+  allowOthersToModify: boolean;
 };
 
 type TodoItem = {
@@ -124,18 +138,181 @@ export default function DashboardLiffPage() {
     formatDateKey(new Date())
   );
   const [lineAccessToken, setLineAccessToken] = useState<string | null>(null);
+  const [currentLineUserId, setCurrentLineUserId] = useState<string | null>(null);
   const [todoItems, setTodoItems] = useState<TodoItem[]>([]);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [currentUserDisplayName, setCurrentUserDisplayName] = useState<string>("");
   const [todoScope, setTodoScope] = useState<"all" | "mine">("all");
   const [groupMembers, setGroupMembers] = useState<Record<string, TodoGroupMember[]>>({});
   const [showCompleted, setShowCompleted] = useState(false);
-  const [newTodoText, setNewTodoText] = useState("");
-  const [newTodoGroupId, setNewTodoGroupId] = useState<string>("");
-  const [newTodoDue, setNewTodoDue] = useState("");
-  const [newTodoAssignees, setNewTodoAssignees] = useState<number[]>([]);
+  const [addTodoForm, setAddTodoForm] = useState({
+    text: "",
+    lineGroupId: "",
+    due: "",
+    assignees: [] as number[],
+  });
   const [addingTodo, setAddingTodo] = useState(false);
   const [showAddTodoModal, setShowAddTodoModal] = useState(false);
+  const [editingTodo, setEditingTodo] = useState<TodoItem | null>(null);
+  const [editTodoForm, setEditTodoForm] = useState({
+    text: "",
+    lineGroupId: "",
+    due: "",
+    assignees: [] as number[],
+  });
+  const [savingTodoEdit, setSavingTodoEdit] = useState(false);
+  const [expandedMeetingIds, setExpandedMeetingIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [editingMeeting, setEditingMeeting] = useState<MeetingItem | null>(null);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    date: "",
+    time: "",
+    location: "",
+    description: "",
+    allowOthersToModify: true,
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string>("");
+  const [cancellingMeetingId, setCancellingMeetingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (editingMeeting) {
+      document.body.style.overflow = "hidden";
+      return () => { document.body.style.overflow = ""; };
+    }
+  }, [editingMeeting]);
+
+  function toggleMeetingExpanded(id: string) {
+    setExpandedMeetingIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function openEditModal(meeting: MeetingItem) {
+    setEditingMeeting(meeting);
+    setEditError("");
+    setEditForm({
+      title: meeting.title,
+      date: meeting.date,
+      time: meeting.time,
+      location: meeting.location === "未提供地點" ? "" : meeting.location,
+      description: meeting.description ?? "",
+      allowOthersToModify: meeting.allowOthersToModify,
+    });
+  }
+
+  async function handleSaveEdit() {
+    if (!editingMeeting || !lineAccessToken) return;
+    const title = editForm.title.trim();
+    if (!title) {
+      setEditError("會議主題不可為空。");
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(editForm.date)) {
+      setEditError("日期格式不正確。");
+      return;
+    }
+    if (!/^\d{2}:\d{2}$/.test(editForm.time)) {
+      setEditError("時間格式不正確。");
+      return;
+    }
+    setSavingEdit(true);
+    setEditError("");
+    const isCreator =
+      currentLineUserId !== null &&
+      editingMeeting.ownerLineUserId === currentLineUserId;
+    try {
+      const payload: Record<string, unknown> = {
+        title,
+        date: editForm.date,
+        time: editForm.time,
+        location: editForm.location.trim() || null,
+        description: editForm.description.trim() || null,
+      };
+      // Only send the permission flag when the requester is the creator —
+      // server rejects it otherwise.
+      if (isCreator && editForm.allowOthersToModify !== editingMeeting.allowOthersToModify) {
+        payload.allowOthersToModify = editForm.allowOthersToModify;
+      }
+      const res = await fetch(`/api/events/${editingMeeting.eventId}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${lineAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        setEditError(data?.error ?? "更新失敗。");
+        return;
+      }
+      const data = (await res.json()) as {
+        title: string;
+        startsAt: string;
+        location: string | null;
+        description: string | null;
+        meetingUrl: string | null;
+        timezone: string;
+        allowOthersToModify?: boolean;
+      };
+      const meetingId = editingMeeting.id;
+      const startsAt = new Date(data.startsAt);
+      setMeetings((prev) =>
+        prev.map((m) =>
+          m.id === meetingId
+            ? {
+                ...m,
+                title: data.title,
+                startsAtIso: startsAt.toISOString(),
+                date: formatDateKeyInTimeZone(startsAt, data.timezone),
+                time: formatTimeLabelInTimeZone(startsAt, data.timezone),
+                location: data.location?.trim() || "未提供地點",
+                description: data.description?.trim() ? data.description : null,
+                meetingUrl: data.meetingUrl?.trim() ? data.meetingUrl : null,
+                timezone: data.timezone,
+                allowOthersToModify:
+                  data.allowOthersToModify ?? m.allowOthersToModify,
+              }
+            : m
+        )
+      );
+      setEditingMeeting(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "更新失敗。");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function handleCancelMeeting(meeting: MeetingItem) {
+    if (!lineAccessToken) return;
+    const ok = window.confirm(`確定要取消「${meeting.title}」這場會議嗎？此動作會通知群組。`);
+    if (!ok) return;
+    setCancellingMeetingId(meeting.id);
+    try {
+      const res = await fetch(`/api/events/${meeting.eventId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${lineAccessToken}` },
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        window.alert(data?.error ?? "取消失敗。");
+        return;
+      }
+      const cancelledId = meeting.id;
+      setMeetings((prev) => prev.filter((m) => m.id !== cancelledId));
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "取消失敗。");
+    } finally {
+      setCancellingMeetingId(null);
+    }
+  }
 
   useEffect(() => {
     if (showAddTodoModal) {
@@ -144,8 +321,67 @@ export default function DashboardLiffPage() {
     }
   }, [showAddTodoModal]);
 
+  useEffect(() => {
+    if (editingTodo) {
+      document.body.style.overflow = "hidden";
+      return () => { document.body.style.overflow = ""; };
+    }
+  }, [editingTodo]);
+
+  function openTodoEditModal(todo: TodoItem) {
+    setEditingTodo(todo);
+    setEditTodoForm({
+      text: todo.item,
+      lineGroupId: todo.lineGroupId,
+      due: todo.due && /^\d{4}-\d{2}-\d{2}/.test(todo.due) ? todo.due.slice(0, 10) : "",
+      assignees: todo.assignedUsers.map((u) => u.userId),
+    });
+  }
+
+  async function handleSaveTodoEdit() {
+    if (!editingTodo || !lineAccessToken) return;
+    const text = editTodoForm.text.trim();
+    if (!text) return;
+    const targetGroup = groups.find((g) => g.lineGroupId === editTodoForm.lineGroupId);
+    if (!targetGroup) return;
+    setSavingTodoEdit(true);
+    try {
+      const res = await fetch(`/api/todo-items/${editingTodo.id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${lineAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          item: text,
+          groupId: targetGroup.groupId,
+          due: editTodoForm.due || "",
+          assignedUserIds: editTodoForm.assignees,
+        }),
+      });
+      if (!res.ok) {
+        console.error("[dashboard.editTodo]", await res.text());
+        return;
+      }
+      const data = (await res.json()) as { todoItem?: TodoItem };
+      if (data.todoItem) {
+        const updated = data.todoItem;
+        setTodoItems((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      }
+      setEditingTodo(null);
+    } catch (err) {
+      console.error("[dashboard.editTodo]", err);
+    } finally {
+      setSavingTodoEdit(false);
+    }
+  }
+
   /** 避免每次 refetch 都把選取日期覆寫成 API 陣列第一筆（例如固定跳回 4/21） */
   const didApplyInitialSelection = useRef(false);
+  /** 首次載入才顯示整頁的 MascotLoadingScreen；切月份時在背景 refetch，不卸載整個 dashboard */
+  const isInitialLoad = useRef(true);
+  /** 已抓取的時間區間；切月份若仍在區間內就跳過 API 呼叫，沿用已有的 meetings/groups */
+  const loadedRange = useRef<{ start: Date; end: Date } | null>(null);
 
   useEffect(() => {
     if (!LIFF_ID) return;
@@ -162,7 +398,33 @@ export default function DashboardLiffPage() {
         setLineAccessToken(accessToken);
         if (cancelled) return;
 
-        setStatus("loadingEvents");
+        // Cache hit：currentMonth 仍在已抓取區間內，沿用 meetings/groups，只更新選取日。
+        if (
+          !isInitialLoad.current &&
+          loadedRange.current &&
+          monthInLoadedRange(currentMonth, loadedRange.current)
+        ) {
+          setSelectedDateKey((prev) => {
+            const d = parseDateKey(prev);
+            const cm = currentMonth;
+            if (d.getFullYear() === cm.getFullYear() && d.getMonth() === cm.getMonth()) {
+              return prev;
+            }
+            const now = new Date();
+            if (
+              now.getFullYear() === cm.getFullYear() &&
+              now.getMonth() === cm.getMonth()
+            ) {
+              return formatDateKey(now);
+            }
+            return formatDateKey(new Date(cm.getFullYear(), cm.getMonth(), 1));
+          });
+          return;
+        }
+
+        if (isInitialLoad.current) {
+          setStatus("loadingEvents");
+        }
 
         const range = buildDashboardRange(currentMonth);
         const response = await fetch(
@@ -182,10 +444,15 @@ export default function DashboardLiffPage() {
           error?: string;
           groups?: DashboardGroup[];
           events?: DashboardEvent[];
+          currentLineUserId?: string;
         };
 
         if (!response.ok) {
           throw new Error(payload.error ?? "讀取活動失敗");
+        }
+
+        if (payload.currentLineUserId) {
+          setCurrentLineUserId(payload.currentLineUserId);
         }
 
         const nextGroups = payload.groups ?? [];
@@ -202,35 +469,28 @@ export default function DashboardLiffPage() {
           if (Object.keys(prev).length > 0) return prev;
           return Object.fromEntries(nextGroups.map((g) => [g.lineGroupId, true]));
         });
-        setNewTodoGroupId((prev) =>
-          prev || (nextGroups.length > 0 ? nextGroups[0].lineGroupId : "")
+        setAddTodoForm((prev) =>
+          prev.lineGroupId
+            ? prev
+            : {
+                ...prev,
+                lineGroupId:
+                  nextGroups.length > 0 ? nextGroups[0].lineGroupId : "",
+              }
         );
         setMeetings(nextMeetings);
 
         if (!didApplyInitialSelection.current) {
           didApplyInitialSelection.current = true;
-          if (nextMeetings.length > 0) {
-            const sorted = [...nextMeetings].sort((a, b) =>
-              a.startsAtIso.localeCompare(b.startsAtIso)
-            );
-            const first = sorted[0];
-            setSelectedDateKey(first.date);
-            const m = startOfMonth(parseDateKey(first.date));
-            setCurrentMonth((prev) =>
-              prev.getFullYear() === m.getFullYear() && prev.getMonth() === m.getMonth()
-                ? prev
-                : m
-            );
-          } else {
-            const today = new Date();
-            setSelectedDateKey(formatDateKey(today));
-            const m = startOfMonth(today);
-            setCurrentMonth((prev) =>
-              prev.getFullYear() === m.getFullYear() && prev.getMonth() === m.getMonth()
-                ? prev
-                : m
-            );
-          }
+          // 預設選取今天；行事曆預設也停在本月（初始 state 已經是這樣，這裡僅確保一致）
+          const today = new Date();
+          setSelectedDateKey(formatDateKey(today));
+          const m = startOfMonth(today);
+          setCurrentMonth((prev) =>
+            prev.getFullYear() === m.getFullYear() && prev.getMonth() === m.getMonth()
+              ? prev
+              : m
+          );
         } else {
           setSelectedDateKey((prev) => {
             const d = parseDateKey(prev);
@@ -249,7 +509,9 @@ export default function DashboardLiffPage() {
           });
         }
 
+        loadedRange.current = { start: range.start, end: range.end };
         setStatus("ready");
+        isInitialLoad.current = false;
       } catch (err) {
         if (cancelled) return;
         setStatus("error");
@@ -351,6 +613,10 @@ export default function DashboardLiffPage() {
 
   async function handleDeleteTodo(id: number) {
     if (!lineAccessToken) return;
+    const target = todoItems.find((t) => t.id === id);
+    const label = target?.item?.trim() || "這項待辦事項";
+    const ok = window.confirm(`確定要刪除「${label}」嗎？此動作無法復原。`);
+    if (!ok) return;
     const backup = todoItems;
     setTodoItems((prev) => prev.filter((t) => t.id !== id));
     try {
@@ -364,44 +630,18 @@ export default function DashboardLiffPage() {
     }
   }
 
-  async function handleUpdateTodoDue(id: number, due: string) {
-    if (!lineAccessToken) return;
-    const prev = todoItems.find((t) => t.id === id);
-    if (!prev) return;
-    setTodoItems((items) => items.map((t) => (t.id === id ? { ...t, due } : t)));
-    try {
-      const res = await fetch(`/api/todo-items/${id}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${lineAccessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ due }),
-      });
-      if (!res.ok) {
-        setTodoItems((items) =>
-          items.map((t) => (t.id === id ? { ...t, due: prev.due } : t))
-        );
-      }
-    } catch {
-      setTodoItems((items) =>
-        items.map((t) => (t.id === id ? { ...t, due: prev.due } : t))
-      );
-    }
-  }
-
   async function handleAddTodo() {
-    if (!lineAccessToken || !newTodoText.trim() || !newTodoGroupId) return;
-    const group = groups.find((g) => g.lineGroupId === newTodoGroupId);
+    if (!lineAccessToken || !addTodoForm.text.trim() || !addTodoForm.lineGroupId) return;
+    const group = groups.find((g) => g.lineGroupId === addTodoForm.lineGroupId);
     if (!group) return;
     setAddingTodo(true);
     try {
       const payload: Record<string, unknown> = {
         groupId: group.groupId,
-        item: newTodoText.trim(),
+        item: addTodoForm.text.trim(),
       };
-      if (newTodoDue) payload.due = newTodoDue;
-      if (newTodoAssignees.length > 0) payload.assignedUserIds = newTodoAssignees;
+      if (addTodoForm.due) payload.due = addTodoForm.due;
+      if (addTodoForm.assignees.length > 0) payload.assignedUserIds = addTodoForm.assignees;
 
       const res = await fetch("/api/todo-items", {
         method: "POST",
@@ -416,9 +656,12 @@ export default function DashboardLiffPage() {
         if (data.todoItem) {
           setTodoItems((prev) => [...prev, data.todoItem!]);
         }
-        setNewTodoText("");
-        setNewTodoDue("");
-        setNewTodoAssignees([]);
+        setAddTodoForm((prev) => ({
+          text: "",
+          lineGroupId: prev.lineGroupId,
+          due: "",
+          assignees: [],
+        }));
         setShowAddTodoModal(false);
       } else {
         console.error("[dashboard.addTodo]", await res.text());
@@ -427,86 +670,6 @@ export default function DashboardLiffPage() {
       console.error("[dashboard.addTodo]", err);
     } finally {
       setAddingTodo(false);
-    }
-  }
-
-  async function handleUpdateTodoText(id: number, item: string) {
-    if (!lineAccessToken || !item.trim()) return;
-    const prev = todoItems.find((t) => t.id === id);
-    if (!prev) return;
-    setTodoItems((items) => items.map((t) => (t.id === id ? { ...t, item } : t)));
-    try {
-      const res = await fetch(`/api/todo-items/${id}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${lineAccessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ item }),
-      });
-      if (!res.ok) {
-        setTodoItems((items) =>
-          items.map((t) => (t.id === id ? { ...t, item: prev.item } : t))
-        );
-      }
-    } catch {
-      setTodoItems((items) =>
-        items.map((t) => (t.id === id ? { ...t, item: prev.item } : t))
-      );
-    }
-  }
-
-  async function handleUpdateTodoAssignees(id: number, assignedUserIds: number[]) {
-    if (!lineAccessToken) return;
-    const prev = todoItems.find((t) => t.id === id);
-    if (!prev) return;
-    try {
-      const res = await fetch(`/api/todo-items/${id}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${lineAccessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ assignedUserIds }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { todoItem?: TodoItem };
-        if (data.todoItem) {
-          setTodoItems((items) =>
-            items.map((t) => (t.id === id ? data.todoItem! : t))
-          );
-        }
-      }
-    } catch {
-      // keep previous state
-    }
-  }
-
-  async function handleUpdateTodoGroup(id: number, newLineGroupId: string) {
-    if (!lineAccessToken) return;
-    const group = groups.find((g) => g.lineGroupId === newLineGroupId);
-    if (!group) return;
-    const prev = todoItems.find((t) => t.id === id);
-    if (!prev) return;
-    try {
-      const res = await fetch(`/api/todo-items/${id}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${lineAccessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ groupId: group.groupId }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { todoItem?: TodoItem };
-        if (data.todoItem) {
-          setTodoItems((items) =>
-            items.map((t) => (t.id === id ? data.todoItem! : t))
-          );
-        }
-      }
-    } catch {
-      // keep previous state
     }
   }
 
@@ -584,14 +747,37 @@ export default function DashboardLiffPage() {
         }}
       >
         <div style={calendarColumnStyle}>
-          <h1
-            style={{
-              ...heroTitleStyle,
-              fontSize: isCompact ? "2.1rem" : "2.5rem",
-            }}
-          >
-            Meeting Dashboard
-          </h1>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem" }}>
+            <h1
+              style={{
+                ...heroTitleStyle,
+                fontSize: isCompact ? "2.1rem" : "2.5rem",
+                margin: 0,
+              }}
+            >
+              Meeting Dashboard
+            </h1>
+            <a
+              href="/liff/rag"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                flexShrink: 0,
+                padding: isCompact ? "0.5rem" : "0.5rem 0.9rem",
+                borderRadius: "50px",
+                background: `rgba(0, 194, 255, 0.12)`,
+                border: `1px solid rgba(0, 194, 255, 0.35)`,
+                color: THEME.accent,
+                fontWeight: 700,
+                fontSize: "0.85rem",
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              🔍{!isCompact && " 會議記錄查詢"}
+            </a>
+          </div>
 
           {status === "error" && <div style={errorBoxStyle}>{errorMsg}</div>}
 
@@ -736,27 +922,22 @@ export default function DashboardLiffPage() {
                   .slice()
                   .sort((a, b) => a.startsAtIso.localeCompare(b.startsAtIso))
                   .map((meeting) => {
-                    const locationText = meeting.location?.trim() ?? "";
-                    const hasLocation =
-                      Boolean(locationText) && locationText !== "未提供地點";
+                    const isCreator =
+                      currentLineUserId !== null &&
+                      meeting.ownerLineUserId === currentLineUserId;
+                    const canModify = isCreator || meeting.allowOthersToModify;
                     return (
-                    <article key={meeting.id} style={meetingCardCompactStyle}>
-                      <div style={meetingTitleStyle}>{meeting.title}</div>
-                      <div style={meetingCompactRowStyle}>
-                        <span
-                          style={{
-                            ...groupPillDotStyle,
-                            background: meeting.groupColor,
-                            marginRight: "0.35rem",
-                          }}
-                        />
-                        <span style={meetingCompactMetaStyle}>{meeting.groupName}</span>
-                      </div>
-                      <div style={meetingCompactMetaStyle}>{meeting.time}</div>
-                      {hasLocation ? (
-                        <div style={meetingCompactMetaStyle}>{locationText}</div>
-                      ) : null}
-                    </article>
+                      <MeetingCard
+                        key={meeting.id}
+                        meeting={meeting}
+                        expanded={expandedMeetingIds.has(meeting.id)}
+                        onToggle={() => toggleMeetingExpanded(meeting.id)}
+                        onEdit={() => openEditModal(meeting)}
+                        onCancel={() => handleCancelMeeting(meeting)}
+                        cancelling={cancellingMeetingId === meeting.id}
+                        canModify={canModify}
+                        showDate={false}
+                      />
                     );
                   })}
               </div>
@@ -769,24 +950,25 @@ export default function DashboardLiffPage() {
               <p style={emptyStyle}>目前沒有即將到來的會議。</p>
             ) : (
               <div style={stackStyle}>
-                {upcomingMeetings.map((meeting) => (
-                  <article key={meeting.id} style={meetingCardCompactStyle}>
-                    <div style={meetingTitleStyle}>{meeting.title}</div>
-                    <div style={meetingCompactRowStyle}>
-                      <span
-                        style={{
-                          ...groupPillDotStyle,
-                          background: meeting.groupColor,
-                          marginRight: "0.35rem",
-                        }}
-                      />
-                      <span style={meetingCompactMetaStyle}>{meeting.groupName}</span>
-                    </div>
-                    <div style={meetingCompactMetaStyle}>
-                      {meeting.date} {meeting.time}
-                    </div>
-                  </article>
-                ))}
+                {upcomingMeetings.map((meeting) => {
+                  const isCreator =
+                    currentLineUserId !== null &&
+                    meeting.ownerLineUserId === currentLineUserId;
+                  const canModify = isCreator || meeting.allowOthersToModify;
+                  return (
+                    <MeetingCard
+                      key={meeting.id}
+                      meeting={meeting}
+                      expanded={expandedMeetingIds.has(meeting.id)}
+                      onToggle={() => toggleMeetingExpanded(meeting.id)}
+                      onEdit={() => openEditModal(meeting)}
+                      onCancel={() => handleCancelMeeting(meeting)}
+                      cancelling={cancellingMeetingId === meeting.id}
+                      canModify={canModify}
+                      showDate
+                    />
+                  );
+                })}
               </div>
             )}
           </div>
@@ -844,200 +1026,6 @@ export default function DashboardLiffPage() {
               </div>
             </div>
 
-            {showAddTodoModal && (
-              <div
-                style={{
-                  position: "fixed",
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  background: "rgba(0, 0, 0, 0.45)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  zIndex: 9999,
-                  padding: "1rem",
-                  touchAction: "none",
-                  overscrollBehavior: "contain",
-                }}
-                onClick={(e) => {
-                  if (e.target === e.currentTarget) setShowAddTodoModal(false);
-                }}
-                onTouchMove={(e) => e.preventDefault()}
-              >
-                <div
-                  style={{
-                    background: THEME.surface,
-                    borderRadius: THEME.radiusPanel,
-                    padding: "1.5rem",
-                    width: "100%",
-                    maxWidth: "380px",
-                    boxShadow: THEME.shadowPanel,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "1rem",
-                    maxHeight: "85vh",
-                    overflowY: "auto",
-                    overscrollBehavior: "contain",
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  onTouchMove={(e) => e.stopPropagation()}
-                >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: THEME.text }}>
-                      新增待辦事項
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setShowAddTodoModal(false)}
-                      style={{
-                        border: "none",
-                        background: "transparent",
-                        fontSize: "1.2rem",
-                        color: THEME.textMuted,
-                        cursor: "pointer",
-                        padding: "0.2rem",
-                        lineHeight: 1,
-                      }}
-                      aria-label="關閉"
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                    <div>
-                      <label style={modalLabelStyle}>待辦事項</label>
-                      <input
-                        type="text"
-                        value={newTodoText}
-                        onChange={(e) => setNewTodoText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleAddTodo();
-                        }}
-                        placeholder="輸入待辦事項內容…"
-                        autoFocus
-                        style={modalFieldStyle}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={modalLabelStyle}>群組</label>
-                      <select
-                        value={newTodoGroupId}
-                        onChange={(e) => {
-                          setNewTodoGroupId(e.target.value);
-                          setNewTodoAssignees([]);
-                        }}
-                        style={modalFieldStyle}
-                        aria-label="選擇群組"
-                      >
-                        <option value="">選擇群組</option>
-                        {groups.map((g) => (
-                          <option key={g.lineGroupId} value={g.lineGroupId}>
-                            {g.name?.trim() || "未命名群組"}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={modalLabelStyle}>截止日期</label>
-                      <div style={{ position: "relative" }}>
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke={THEME.textMuted}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          style={{ position: "absolute", left: "0.65rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
-                        >
-                          <circle cx="12" cy="12" r="10"/>
-                          <polyline points="12 6 12 12 16 14"/>
-                        </svg>
-                        <input
-                          type="date"
-                          value={newTodoDue}
-                          onChange={(e) => setNewTodoDue(e.target.value)}
-                          style={{ ...modalFieldStyle, paddingLeft: "2.2rem" }}
-                          aria-label="截止日期"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label style={modalLabelStyle}>指派成員</label>
-                      <select
-                        value=""
-                        onChange={(e) => {
-                          const uid = Number(e.target.value);
-                          if (uid && !newTodoAssignees.includes(uid)) {
-                            setNewTodoAssignees((prev) => [...prev, uid]);
-                          }
-                        }}
-                        style={modalFieldStyle}
-                        aria-label="指派成員"
-                        disabled={!newTodoGroupId}
-                      >
-                        <option value="">{newTodoGroupId ? "選擇成員" : "請先選擇群組"}</option>
-                        {(groupMembers[newTodoGroupId] ?? [])
-                          .filter((m) => !newTodoAssignees.includes(m.userId))
-                          .map((m) => (
-                            <option key={m.userId} value={m.userId}>
-                              {m.displayName}
-                            </option>
-                          ))}
-                      </select>
-                      {newTodoAssignees.length > 0 && (
-                        <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-                          {newTodoAssignees.map((uid) => {
-                            const m = (groupMembers[newTodoGroupId] ?? []).find((x) => x.userId === uid);
-                            return (
-                              <span key={uid} style={assigneeChipStyle}>
-                                {m?.displayName ?? "?"}
-                                <button
-                                  type="button"
-                                  onClick={() => setNewTodoAssignees((prev) => prev.filter((id) => id !== uid))}
-                                  style={assigneeChipRemoveStyle}
-                                >
-                                  ✕
-                                </button>
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleAddTodo}
-                    disabled={addingTodo || !newTodoText.trim() || !newTodoGroupId}
-                    style={{
-                      background: THEME.accent,
-                      color: "#FFF",
-                      border: "none",
-                      borderRadius: "12px",
-                      padding: "0.65rem",
-                      fontSize: "0.9rem",
-                      fontWeight: 700,
-                      cursor: addingTodo || !newTodoText.trim() || !newTodoGroupId ? "not-allowed" : "pointer",
-                      opacity: addingTodo || !newTodoText.trim() || !newTodoGroupId ? 0.5 : 1,
-                      marginTop: "0.25rem",
-                      transition: "opacity 0.15s",
-                    }}
-                  >
-                    {addingTodo ? "新增中…" : "新增"}
-                  </button>
-                </div>
-              </div>
-            )}
-
             {pendingTodos.length === 0 ? (
               <p style={emptyStyle}>目前沒有未完成的待辦事項。</p>
             ) : (
@@ -1051,10 +1039,7 @@ export default function DashboardLiffPage() {
                     members={groupMembers[todo.lineGroupId] ?? []}
                     onToggle={() => handleToggleTodo(todo.id, true)}
                     onDelete={() => handleDeleteTodo(todo.id)}
-                    onUpdateDue={(due) => handleUpdateTodoDue(todo.id, due)}
-                    onUpdateAssignees={(uids) => handleUpdateTodoAssignees(todo.id, uids)}
-                    onUpdateText={(text) => handleUpdateTodoText(todo.id, text)}
-                    onUpdateGroup={(gid) => handleUpdateTodoGroup(todo.id, gid)}
+                    onOpenEdit={() => openTodoEditModal(todo)}
                   />
                 ))}
               </div>
@@ -1080,10 +1065,7 @@ export default function DashboardLiffPage() {
                         members={groupMembers[todo.lineGroupId] ?? []}
                         onToggle={() => handleToggleTodo(todo.id, false)}
                         onDelete={() => handleDeleteTodo(todo.id)}
-                        onUpdateDue={(due) => handleUpdateTodoDue(todo.id, due)}
-                        onUpdateAssignees={(uids) => handleUpdateTodoAssignees(todo.id, uids)}
-                        onUpdateText={(text) => handleUpdateTodoText(todo.id, text)}
-                        onUpdateGroup={(gid) => handleUpdateTodoGroup(todo.id, gid)}
+                        onOpenEdit={() => openTodoEditModal(todo)}
                       />
                     ))}
                   </div>
@@ -1093,7 +1075,219 @@ export default function DashboardLiffPage() {
           </div>
         </div>
       </div>
+
     </main>
+      )}
+      {showAddTodoModal && (
+        <TodoFormModal
+          title="新增待辦事項"
+          submitLabel="新增"
+          submittingLabel="新增中…"
+          submitting={addingTodo}
+          form={addTodoForm}
+          setForm={setAddTodoForm}
+          groups={groups}
+          groupMembers={groupMembers}
+          onClose={() => setShowAddTodoModal(false)}
+          onSubmit={handleAddTodo}
+        />
+      )}
+      {editingTodo && (
+        <TodoFormModal
+          title="編輯待辦事項"
+          submitLabel="儲存"
+          submittingLabel="儲存中…"
+          submitting={savingTodoEdit}
+          form={editTodoForm}
+          setForm={setEditTodoForm}
+          groups={groups}
+          groupMembers={groupMembers}
+          onClose={() => setEditingTodo(null)}
+          onSubmit={handleSaveTodoEdit}
+        />
+      )}
+      {editingMeeting && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0, 0, 0, 0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "1rem",
+            touchAction: "none",
+            overscrollBehavior: "contain",
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setEditingMeeting(null);
+          }}
+          onTouchMove={(e) => e.preventDefault()}
+        >
+          <div
+            style={{
+              background: THEME.surface,
+              borderRadius: THEME.radiusPanel,
+              padding: "1.5rem",
+              width: "100%",
+              maxWidth: "420px",
+              boxShadow: THEME.shadowPanel,
+              display: "flex",
+              flexDirection: "column",
+              gap: "1rem",
+              maxHeight: "85vh",
+              overflowY: "auto",
+              overscrollBehavior: "contain",
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: THEME.text }}>
+                編輯會議
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingMeeting(null)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  fontSize: "1.2rem",
+                  color: THEME.textMuted,
+                  cursor: "pointer",
+                  padding: "0.2rem",
+                  lineHeight: 1,
+                }}
+                aria-label="關閉"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <div>
+                <label style={modalLabelStyle}>會議主題</label>
+                <input
+                  type="text"
+                  value={editForm.title}
+                  onChange={(e) => setEditForm((p) => ({ ...p, title: e.target.value }))}
+                  style={modalFieldStyle}
+                />
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <div style={{ flex: 1 }}>
+                  <label style={modalLabelStyle}>日期</label>
+                  <input
+                    type="date"
+                    value={editForm.date}
+                    onChange={(e) => setEditForm((p) => ({ ...p, date: e.target.value }))}
+                    style={modalFieldStyle}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={modalLabelStyle}>時間</label>
+                  <input
+                    type="time"
+                    value={editForm.time}
+                    onChange={(e) => setEditForm((p) => ({ ...p, time: e.target.value }))}
+                    style={modalFieldStyle}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={modalLabelStyle}>地點</label>
+                <input
+                  type="text"
+                  value={editForm.location}
+                  onChange={(e) => setEditForm((p) => ({ ...p, location: e.target.value }))}
+                  placeholder="（選填）"
+                  style={modalFieldStyle}
+                />
+              </div>
+              <div>
+                <label style={modalLabelStyle}>備註</label>
+                <textarea
+                  value={editForm.description}
+                  onChange={(e) => setEditForm((p) => ({ ...p, description: e.target.value }))}
+                  placeholder="（選填）"
+                  rows={3}
+                  style={{ ...modalFieldStyle, fontFamily: "inherit", resize: "vertical" }}
+                />
+              </div>
+
+              {currentLineUserId !== null &&
+                editingMeeting.ownerLineUserId === currentLineUserId && (
+                  <div>
+                    <label style={modalLabelStyle}>權限</label>
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.55rem",
+                        cursor: "pointer",
+                        fontSize: "0.85rem",
+                        color: THEME.text,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={editForm.allowOthersToModify}
+                        onChange={(e) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            allowOthersToModify: e.target.checked,
+                          }))
+                        }
+                        style={{ flexShrink: 0, width: "1rem", height: "1rem" }}
+                      />
+                      <span>允許其他群組成員編輯或取消此會議</span>
+                    </label>
+                  </div>
+                )}
+            </div>
+
+            {editError && (
+              <div
+                style={{
+                  fontSize: "0.82rem",
+                  color: THEME.errorText,
+                  background: THEME.errorBg,
+                  border: `1px solid ${THEME.errorBorder}`,
+                  borderRadius: "10px",
+                  padding: "0.45rem 0.65rem",
+                }}
+              >
+                {editError}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleSaveEdit}
+              disabled={savingEdit}
+              style={{
+                background: THEME.accent,
+                color: "#FFF",
+                border: "none",
+                borderRadius: "12px",
+                padding: "0.65rem",
+                fontSize: "0.9rem",
+                fontWeight: 700,
+                cursor: savingEdit ? "not-allowed" : "pointer",
+                opacity: savingEdit ? 0.5 : 1,
+                marginTop: "0.25rem",
+                transition: "opacity 0.15s",
+              }}
+            >
+              {savingEdit ? "儲存中…" : "儲存變更"}
+            </button>
+          </div>
+        </div>
       )}
     </>
   );
@@ -1201,6 +1395,7 @@ function mapEventToMeetingItem(
   const groupName = group.name?.trim() || "未命名群組";
   return {
     id: `${event.lineGroupId}-${event.eventId}`,
+    eventId: event.eventId,
     title: event.title,
     date: formatDateKeyInTimeZone(startsAt, event.timezone),
     time: formatTimeLabelInTimeZone(startsAt, event.timezone),
@@ -1211,15 +1406,33 @@ function mapEventToMeetingItem(
     groupPictureUrl: group.pictureUrl,
     groupColor: resolveGroupColor(event.lineGroupId),
     startsAtIso: startsAt.toISOString(),
+    timezone: event.timezone,
+    description: event.description?.trim() ? event.description : null,
+    meetingUrl: event.meetingUrl?.trim() ? event.meetingUrl : null,
+    driveFolderUrl: event.driveFolderId?.trim()
+      ? `https://drive.google.com/drive/folders/${event.driveFolderId.trim()}`
+      : null,
+    summary: event.summary?.trim() ? event.summary : null,
+    ownerLineUserId: event.ownerLineUserId ?? null,
+    allowOthersToModify: event.allowOthersToModify !== false,
   };
 }
 
+/** ±5 個月的視窗（總長 ~335 天，安全落在後端 366 天上限內），配合 loadedRange 讓相鄰月份切換能命中快取、不打 API。 */
 function buildDashboardRange(month: Date) {
-  const start = new Date(month.getFullYear(), month.getMonth(), 1);
-  start.setDate(start.getDate() - 10);
-  const end = new Date(month.getFullYear(), month.getMonth() + 1, 1);
-  end.setDate(end.getDate() + 45);
-  return { rangeStart: start.toISOString(), rangeEnd: end.toISOString() };
+  const start = new Date(month.getFullYear(), month.getMonth() - 5, 1);
+  const end = new Date(month.getFullYear(), month.getMonth() + 6, 1);
+  return { start, end, rangeStart: start.toISOString(), rangeEnd: end.toISOString() };
+}
+
+/** currentMonth 與其前後一個月都須完整落在已抓取區間內，才算 cache 命中（給「即將到來」一些緩衝）。 */
+function monthInLoadedRange(
+  month: Date,
+  range: { start: Date; end: Date }
+): boolean {
+  const safeStart = new Date(month.getFullYear(), month.getMonth() - 1, 1);
+  const safeEnd = new Date(month.getFullYear(), month.getMonth() + 2, 1);
+  return range.start.getTime() <= safeStart.getTime() && range.end.getTime() >= safeEnd.getTime();
 }
 
 const GROUP_COLORS = [
@@ -1268,6 +1481,42 @@ function GroupAvatar({
         borderColor: color,
         background: THEME.pageBgAlt,
         color: THEME.text,
+      }}
+    >
+      {initial}
+    </span>
+  );
+}
+
+function AssigneeAvatar({
+  name,
+  pictureUrl,
+}: {
+  name: string;
+  pictureUrl: string | null;
+}) {
+  const initial = name.trim().slice(0, 1) || "?";
+  if (pictureUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={pictureUrl}
+        alt={name}
+        style={assigneeAvatarStyle}
+      />
+    );
+  }
+  return (
+    <span
+      style={{
+        ...assigneeAvatarStyle,
+        background: THEME.pageBgAlt,
+        color: THEME.text,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "0.7rem",
+        fontWeight: 700,
       }}
     >
       {initial}
@@ -1540,6 +1789,29 @@ const meetingCompactMetaStyle: CSSProperties = {
   lineHeight: 1.35,
 };
 
+const meetingActionButtonStyle: CSSProperties = {
+  flex: 1,
+  fontSize: "0.82rem",
+  fontWeight: 600,
+  padding: "0.4rem 0.5rem",
+  borderRadius: "10px",
+  border: `1px solid ${THEME.surfaceBorder}`,
+  background: THEME.surfaceSubtle,
+  color: THEME.text,
+  cursor: "pointer",
+};
+
+const meetingLinkStyle: CSSProperties = {
+  fontSize: "0.82rem",
+  color: THEME.accent,
+  textDecoration: "none",
+  fontWeight: 600,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.3rem",
+  wordBreak: "break-all",
+};
+
 const emptyStyle: CSSProperties = {
   margin: 0,
   color: THEME.textMuted,
@@ -1615,26 +1887,6 @@ const completedToggleStyle: CSSProperties = {
   marginTop: "0.5rem",
 };
 
-const todoDeleteBtnStyle: CSSProperties = {
-  border: "none",
-  background: "transparent",
-  color: THEME.textMuted,
-  cursor: "pointer",
-  fontSize: "1.15rem",
-  padding: "0.35rem 0.45rem",
-  borderRadius: "8px",
-  flexShrink: 0,
-  lineHeight: 1,
-};
-
-const todoMetaStyle: CSSProperties = {
-  fontSize: "0.78rem",
-  color: THEME.textMuted,
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "0.2rem",
-};
-
 const modalLabelStyle: CSSProperties = {
   display: "block",
   fontSize: "0.78rem",
@@ -1656,25 +1908,12 @@ const modalFieldStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-const todoSelectStyle: CSSProperties = {
-  fontSize: "0.78rem",
-  color: THEME.textMuted,
-  background: "transparent",
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: "8px",
-  padding: "0.15rem 0.35rem",
-  cursor: "pointer",
-  maxWidth: "8rem",
-};
-
-const todoDateInputStyle: CSSProperties = {
-  fontSize: "0.78rem",
-  color: THEME.textMuted,
-  background: "transparent",
-  border: `1px solid ${THEME.surfaceBorder}`,
-  borderRadius: "8px",
-  padding: "0.15rem 0.35rem",
-  cursor: "pointer",
+const assigneeAvatarStyle: CSSProperties = {
+  width: "18px",
+  height: "18px",
+  borderRadius: "999px",
+  objectFit: "cover",
+  flexShrink: 0,
 };
 
 const assigneeChipStyle: CSSProperties = {
@@ -1689,15 +1928,461 @@ const assigneeChipStyle: CSSProperties = {
   lineHeight: 1.4,
 };
 
-const assigneeChipRemoveStyle: CSSProperties = {
-  border: "none",
-  background: "transparent",
-  color: THEME.textMuted,
-  cursor: "pointer",
-  fontSize: "0.6rem",
-  padding: "0 0.1rem",
-  lineHeight: 1,
+function MeetingCard({
+  meeting,
+  expanded,
+  onToggle,
+  onEdit,
+  onCancel,
+  cancelling,
+  canModify,
+  showDate,
+}: {
+  meeting: MeetingItem;
+  expanded: boolean;
+  onToggle: () => void;
+  onEdit: () => void;
+  onCancel: () => void;
+  cancelling: boolean;
+  canModify: boolean;
+  showDate: boolean;
+}) {
+  const locationText = meeting.location?.trim() ?? "";
+  const hasLocation = Boolean(locationText) && locationText !== "未提供地點";
+  const description = meeting.description?.trim() ?? "";
+  const meetingUrl = meeting.meetingUrl?.trim() ?? "";
+  const driveFolderUrl = meeting.driveFolderUrl?.trim() ?? "";
+  const summary = meeting.summary?.trim() ?? "";
+  // Cards are always expandable now (action buttons live inside the fold).
+  const hasExpandable = true;
+
+  return (
+    <article
+      style={{
+        ...meetingCardCompactStyle,
+        cursor: "pointer",
+      }}
+      onClick={onToggle}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={meetingTitleStyle}>{meeting.title}</div>
+          <div style={meetingCompactRowStyle}>
+            <span
+              style={{
+                ...groupPillDotStyle,
+                background: meeting.groupColor,
+                marginRight: "0.35rem",
+              }}
+            />
+            <span style={meetingCompactMetaStyle}>{meeting.groupName}</span>
+          </div>
+          <div style={meetingCompactMetaStyle}>
+            {showDate ? `${meeting.date} ${meeting.time}` : meeting.time}
+          </div>
+          {hasLocation && (
+            <div style={meetingCompactMetaStyle}>{locationText}</div>
+          )}
+        </div>
+        {hasExpandable && (
+          <span
+            aria-hidden
+            style={{
+              color: THEME.textMuted,
+              fontSize: "0.85rem",
+              flexShrink: 0,
+              marginTop: "0.15rem",
+              transition: "transform 0.15s ease",
+              transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+            }}
+          >
+            ▸
+          </span>
+        )}
+      </div>
+
+      {expanded && (
+        <div
+          style={{
+            marginTop: "0.55rem",
+            paddingTop: "0.55rem",
+            borderTop: `1px solid ${THEME.surfaceBorder}`,
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.55rem",
+          }}
+        >
+          {description && (
+            <div
+              style={{
+                fontSize: "0.82rem",
+                color: THEME.text,
+                lineHeight: 1.5,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+            >
+              {description}
+            </div>
+          )}
+          {(meetingUrl || driveFolderUrl) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.55rem 1rem" }}>
+              {meetingUrl && (
+                <a
+                  href={meetingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  style={meetingLinkStyle}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                  </svg>
+                  加入會議
+                </a>
+              )}
+              {driveFolderUrl && (
+                <a
+                  href={driveFolderUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  style={meetingLinkStyle}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                  會議資料夾
+                </a>
+              )}
+            </div>
+          )}
+          {summary && (
+            <div>
+              <div
+                style={{
+                  fontSize: "0.78rem",
+                  fontWeight: 700,
+                  color: THEME.textMuted,
+                  marginBottom: "0.3rem",
+                  letterSpacing: "0.02em",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.3rem",
+                }}
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <line x1="10" y1="9" x2="8" y2="9" />
+                </svg>
+                會議摘要
+              </div>
+              <div
+                style={{
+                  fontSize: "0.82rem",
+                  color: THEME.text,
+                  lineHeight: 1.55,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  maxHeight: "16rem",
+                  overflowY: "auto",
+                  background: THEME.surfaceSubtle,
+                  border: `1px solid ${THEME.surfaceBorder}`,
+                  borderRadius: "10px",
+                  padding: "0.55rem 0.7rem",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {summary}
+              </div>
+            </div>
+          )}
+          {canModify ? (
+            <div style={{ display: "flex", gap: "0.4rem", marginTop: description || meetingUrl || driveFolderUrl || summary ? "0.2rem" : 0 }}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+                disabled={cancelling}
+                style={meetingActionButtonStyle}
+              >
+                編輯
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCancel();
+                }}
+                disabled={cancelling}
+                style={{
+                  ...meetingActionButtonStyle,
+                  color: THEME.errorText,
+                  borderColor: THEME.errorBorder,
+                  background: THEME.errorBg,
+                }}
+              >
+                {cancelling ? "取消中…" : "取消會議"}
+              </button>
+            </div>
+          ) : (
+            <div
+              style={{
+                fontSize: "0.78rem",
+                color: THEME.textMuted,
+                fontStyle: "italic",
+                marginTop: description || meetingUrl || driveFolderUrl || summary ? "0.2rem" : 0,
+              }}
+            >
+             只有會議建立者可以編輯或取消此會議。
+            </div>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
+
+type TodoFormFields = {
+  text: string;
+  lineGroupId: string;
+  due: string;
+  assignees: number[];
 };
+
+function TodoFormModal({
+  title,
+  submitLabel,
+  submittingLabel,
+  submitting,
+  form,
+  setForm,
+  groups,
+  groupMembers,
+  onClose,
+  onSubmit,
+}: {
+  title: string;
+  submitLabel: string;
+  submittingLabel: string;
+  submitting: boolean;
+  form: TodoFormFields;
+  setForm: (updater: (prev: TodoFormFields) => TodoFormFields) => void;
+  groups: DashboardGroup[];
+  groupMembers: Record<string, TodoGroupMember[]>;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const memberPool = groupMembers[form.lineGroupId] ?? [];
+  const disabled = submitting || !form.text.trim() || !form.lineGroupId;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "rgba(0, 0, 0, 0.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 9999,
+        padding: "1rem",
+        touchAction: "none",
+        overscrollBehavior: "contain",
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      onTouchMove={(e) => e.preventDefault()}
+    >
+      <div
+        style={{
+          background: THEME.surface,
+          borderRadius: THEME.radiusPanel,
+          padding: "1.5rem",
+          width: "100%",
+          maxWidth: "420px",
+          boxShadow: THEME.shadowPanel,
+          display: "flex",
+          flexDirection: "column",
+          gap: "1rem",
+          maxHeight: "85vh",
+          overflowY: "auto",
+          overscrollBehavior: "contain",
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: THEME.text }}>
+            {title}
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              border: "none",
+              background: "transparent",
+              fontSize: "1.2rem",
+              color: THEME.textMuted,
+              cursor: "pointer",
+              padding: "0.2rem",
+              lineHeight: 1,
+            }}
+            aria-label="關閉"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <div>
+            <label style={modalLabelStyle}>待辦事項</label>
+            <input
+              type="text"
+              value={form.text}
+              onChange={(e) => setForm((p) => ({ ...p, text: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !disabled) onSubmit();
+              }}
+              placeholder="輸入待辦事項內容…"
+              autoFocus
+              style={modalFieldStyle}
+            />
+          </div>
+
+          <div>
+            <label style={modalLabelStyle}>群組</label>
+            <select
+              value={form.lineGroupId}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, lineGroupId: e.target.value, assignees: [] }))
+              }
+              style={modalFieldStyle}
+              aria-label="選擇群組"
+            >
+              <option value="">選擇群組</option>
+              {groups.map((g) => (
+                <option key={g.lineGroupId} value={g.lineGroupId}>
+                  {g.name?.trim() || "未命名群組"}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={modalLabelStyle}>截止日期</label>
+            <div style={{ position: "relative" }}>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={THEME.textMuted}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ position: "absolute", left: "0.65rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+              >
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+              <input
+                type="date"
+                value={form.due}
+                onChange={(e) => setForm((p) => ({ ...p, due: e.target.value }))}
+                style={{ ...modalFieldStyle, paddingLeft: "2.2rem" }}
+                aria-label="截止日期"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={modalLabelStyle}>指派成員</label>
+            {form.lineGroupId ? (
+              <MemberMultiSelect
+                members={memberPool}
+                selectedIds={form.assignees.map(String)}
+                onChange={(ids) =>
+                  setForm((p) => ({ ...p, assignees: ids.map(Number) }))
+                }
+                compact
+                usePortal
+              />
+            ) : (
+              <div
+                style={{
+                  ...modalFieldStyle,
+                  color: THEME.textMuted,
+                  cursor: "not-allowed",
+                }}
+              >
+                請先選擇群組
+              </div>
+            )}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={disabled}
+          style={{
+            background: THEME.accent,
+            color: "#FFF",
+            border: "none",
+            borderRadius: "12px",
+            padding: "0.65rem",
+            fontSize: "0.9rem",
+            fontWeight: 700,
+            cursor: disabled ? "not-allowed" : "pointer",
+            opacity: disabled ? 0.5 : 1,
+            marginTop: "0.25rem",
+            transition: "opacity 0.15s",
+          }}
+        >
+          {submitting ? submittingLabel : submitLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function TodoItemCard({
   todo,
@@ -1706,10 +2391,7 @@ function TodoItemCard({
   members,
   onToggle,
   onDelete,
-  onUpdateDue,
-  onUpdateAssignees,
-  onUpdateText,
-  onUpdateGroup,
+  onOpenEdit,
 }: {
   todo: TodoItem;
   groups: DashboardGroup[];
@@ -1717,258 +2399,117 @@ function TodoItemCard({
   members: TodoGroupMember[];
   onToggle: () => void;
   onDelete: () => void;
-  onUpdateDue: (due: string) => void;
-  onUpdateAssignees: (userIds: number[]) => void;
-  onUpdateText: (text: string) => void;
-  onUpdateGroup: (lineGroupId: string) => void;
+  onOpenEdit: () => void;
 }) {
-  const [cardEditing, setCardEditing] = useState(false);
-  const [editingText, setEditingText] = useState(false);
-  const [editText, setEditText] = useState(todo.item);
-  const currentIds = todo.assignedUsers.map((u) => u.userId);
-
-  const groupName = groups.find((g) => g.lineGroupId === todo.lineGroupId)?.name?.trim() || "未命名群組";
-
-  function commitEdit() {
-    const trimmed = editText.trim();
-    setEditingText(false);
-    if (trimmed && trimmed !== todo.item) {
-      onUpdateText(trimmed);
-    } else {
-      setEditText(todo.item);
-    }
-  }
-
-  const dueDateDisplay = todo.due && /^\d{4}-\d{2}-\d{2}/.test(todo.due)
-    ? todo.due.slice(0, 10)
-    : "";
+  const memberById = new Map(members.map((m) => [m.userId, m]));
+  const groupName =
+    groups.find((g) => g.lineGroupId === todo.lineGroupId)?.name?.trim() ||
+    "未命名群組";
+  const dueDateDisplay =
+    todo.due && /^\d{4}-\d{2}-\d{2}/.test(todo.due) ? todo.due.slice(0, 10) : "";
 
   return (
-    <article
-      style={{
-        ...meetingCardCompactStyle,
-        display: "flex",
-        alignItems: "flex-start",
-        gap: "0.55rem",
-      }}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-label={todo.isCompleted ? "標記為未完成" : "標記為完成"}
-        style={{
-          width: "1.25rem",
-          height: "1.25rem",
-          borderRadius: "50%",
-          border: `2px solid ${todo.isCompleted ? groupColor : THEME.surfaceBorder}`,
-          background: todo.isCompleted ? groupColor : "transparent",
-          cursor: "pointer",
-          flexShrink: 0,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          marginTop: "0.15rem",
-          color: "#FFF",
-          fontSize: "0.65rem",
-          transition: "background 0.15s, border-color 0.15s",
-          padding: 0,
-        }}
-      >
-        {todo.isCompleted && "✓"}
-      </button>
+    <article style={meetingCardCompactStyle}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "0.55rem" }}>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={todo.isCompleted ? "標記為未完成" : "標記為完成"}
+          style={{
+            width: "1.25rem",
+            height: "1.25rem",
+            borderRadius: "50%",
+            border: `2px solid ${todo.isCompleted ? groupColor : THEME.surfaceBorder}`,
+            background: todo.isCompleted ? groupColor : "transparent",
+            cursor: "pointer",
+            flexShrink: 0,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            marginTop: "0.15rem",
+            color: "#FFF",
+            fontSize: "0.65rem",
+            transition: "background 0.15s, border-color 0.15s",
+            padding: 0,
+          }}
+        >
+          {todo.isCompleted && "✓"}
+        </button>
 
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {editingText ? (
-          <input
-            type="text"
-            value={editText}
-            onChange={(e) => setEditText(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitEdit();
-              if (e.key === "Escape") {
-                setEditText(todo.item);
-                setEditingText(false);
-              }
-            }}
-            autoFocus
-            style={{
-              fontWeight: 700,
-              fontSize: "0.9rem",
-              color: THEME.text,
-              border: `1px solid ${THEME.accent}`,
-              borderRadius: "6px",
-              padding: "0.15rem 0.35rem",
-              width: "100%",
-              marginBottom: "0.25rem",
-              outline: "none",
-            }}
-          />
-        ) : (
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div
-            onClick={() => {
-              if (!todo.isCompleted && cardEditing) {
-                setEditText(todo.item);
-                setEditingText(true);
-              }
-            }}
             style={{
               fontWeight: 700,
               fontSize: "0.9rem",
               color: todo.isCompleted ? THEME.textMuted : THEME.text,
               textDecoration: todo.isCompleted ? "line-through" : "none",
               marginBottom: "0.25rem",
-              cursor: !todo.isCompleted && cardEditing ? "pointer" : "default",
             }}
           >
             {todo.item}
           </div>
-        )}
 
-        {cardEditing ? (
-          <>
-            <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
-              <span style={todoMetaStyle}>
-                <input
-                  type="date"
-                  value={dueDateDisplay}
-                  onChange={(e) => onUpdateDue(e.target.value)}
-                  style={todoDateInputStyle}
-                  aria-label="截止日期"
-                />
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.1rem" }}>
+            {dueDateDisplay && (
+              <span style={{ fontSize: "0.76rem", color: THEME.textMuted, display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                {dueDateDisplay}
               </span>
-
-              <span style={todoMetaStyle}>
-                <select
-                  value=""
-                  onChange={(e) => {
-                    const uid = Number(e.target.value);
-                    if (uid && !currentIds.includes(uid)) {
-                      onUpdateAssignees([...currentIds, uid]);
-                    }
-                  }}
-                  style={todoSelectStyle}
-                  aria-label="指派成員"
-                >
-                  <option value="">
-                    {currentIds.length === 0 ? "指派成員" : "+ 成員"}
-                  </option>
-                  {members
-                    .filter((m) => !currentIds.includes(m.userId))
-                    .map((m) => (
-                      <option key={m.userId} value={m.userId}>
-                        {m.displayName}
-                      </option>
-                    ))}
-                </select>
-              </span>
-            </div>
-
-            {todo.assignedUsers.length > 0 && (
-              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
-                {todo.assignedUsers.map((u) => (
-                  <span key={u.userId} style={assigneeChipStyle}>
-                    {u.displayName}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdateAssignees(currentIds.filter((id) => id !== u.userId))
-                      }
-                      style={assigneeChipRemoveStyle}
-                    >
-                      ✕
-                    </button>
-                  </span>
-                ))}
-              </div>
             )}
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.3rem",
-                marginTop: "0.3rem",
-              }}
-            >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
               <span style={{ ...groupPillDotStyle, background: groupColor }} />
-              <select
-                value={todo.lineGroupId}
-                onChange={(e) => onUpdateGroup(e.target.value)}
-                style={{
-                  fontSize: "0.72rem",
-                  color: THEME.textMuted,
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                }}
-                aria-label="所屬群組"
-              >
-                {groups.map((g) => (
-                  <option key={g.lineGroupId} value={g.lineGroupId}>
-                    {g.name?.trim() || "未命名群組"}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.1rem" }}>
-              {dueDateDisplay && (
-                <span style={{ fontSize: "0.76rem", color: THEME.textMuted, display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                  {dueDateDisplay}
-                </span>
-              )}
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
-                <span style={{ ...groupPillDotStyle, background: groupColor }} />
-                <span style={{ fontSize: "0.72rem", color: THEME.textMuted }}>{groupName}</span>
-              </span>
-            </div>
+              <span style={{ fontSize: "0.72rem", color: THEME.textMuted }}>{groupName}</span>
+            </span>
+          </div>
 
-            {todo.assignedUsers.length > 0 && (
-              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
-                {todo.assignedUsers.map((u) => (
-                  <span key={u.userId} style={{ ...assigneeChipStyle, cursor: "default" }}>
+          {todo.assignedUsers.length > 0 && (
+            <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
+              {todo.assignedUsers.map((u) => {
+                const cached = memberById.get(u.userId);
+                return (
+                  <span
+                    key={u.userId}
+                    style={{
+                      ...assigneeChipStyle,
+                      cursor: "default",
+                      paddingLeft: "0.2rem",
+                      gap: "0.3rem",
+                    }}
+                  >
+                    <AssigneeAvatar
+                      name={u.displayName}
+                      pictureUrl={cached?.pictureUrl ?? null}
+                    />
                     {u.displayName}
                   </span>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: "0.15rem", flexShrink: 0, marginTop: "0.1rem" }}>
+      <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.6rem" }}>
         {!todo.isCompleted && (
           <button
             type="button"
-            onClick={() => setCardEditing((v) => !v)}
-            aria-label={cardEditing ? "完成編輯" : "編輯待辦事項"}
-            style={{
-              border: "none",
-              background: cardEditing ? `rgba(${THEME.accentRgb}, 0.12)` : "transparent",
-              color: cardEditing ? THEME.accent : THEME.textMuted,
-              cursor: "pointer",
-              fontSize: "1.15rem",
-              padding: "0.35rem 0.45rem",
-              borderRadius: "8px",
-              lineHeight: 1,
-              transition: "background 0.15s, color 0.15s",
-            }}
+            onClick={onOpenEdit}
+            style={meetingActionButtonStyle}
           >
-            ✎
+            編輯
           </button>
         )}
         <button
           type="button"
           onClick={onDelete}
-          aria-label="刪除待辦事項"
-          style={todoDeleteBtnStyle}
+          style={{
+            ...meetingActionButtonStyle,
+            color: THEME.errorText,
+            borderColor: THEME.errorBorder,
+            background: THEME.errorBg,
+          }}
         >
-          ✕
+          刪除
         </button>
       </div>
     </article>

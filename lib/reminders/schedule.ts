@@ -3,6 +3,7 @@ const IMMEDIATE_REMINDER_DELAY_MS = 5 * 1000;
 
 export function resolveReminderScheduleTime(
   startsAt: string | Date,
+  leadTimeMs: number = EVENT_REMINDER_LEAD_TIME_MS,
   now = new Date()
 ): Date | null {
   const startDate = startsAt instanceof Date ? startsAt : new Date(startsAt);
@@ -16,7 +17,7 @@ export function resolveReminderScheduleTime(
     return null;
   }
 
-  const reminderTime = startTime - EVENT_REMINDER_LEAD_TIME_MS;
+  const reminderTime = startTime - leadTimeMs;
   if (reminderTime <= nowTime) {
     return new Date(nowTime + IMMEDIATE_REMINDER_DELAY_MS);
   }

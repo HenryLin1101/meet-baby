@@ -11,6 +11,10 @@ node_modules/
 out/
 *.tsbuildinfo
 
+# local scripts
+scripts/
+docs/
+
 # misc
 .DS_Store
 *.log

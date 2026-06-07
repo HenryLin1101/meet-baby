@@ -22,11 +22,17 @@ function getOpenAIModel(): string {
   return process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini";
 }
 
+export type ActionItem = {
+  item: string;
+  owner: string;
+  due: string;
+};
+
 export type MeetingSummary = {
   topic: string;
   bullets: string[];
   decisions: string[];
-  actionItems: { item: string; owner: string; due: string }[];
+  actionItems: ActionItem[];
 };
 
 export async function summarizeMeetingTranscript(input: {
@@ -81,7 +87,7 @@ export async function summarizeMeetingTranscript(input: {
         {
           role: "system",
           content:
-            "You are a helpful assistant that summarizes meeting transcripts in Traditional Chinese. Be concise, factual, and avoid hallucinating. If information is missing, omit it.",
+            "You are a helpful assistant that summarizes meeting transcripts in Traditional Chinese. Be concise, factual, and avoid hallucinating. If information is missing, omit it. When speaker names appear in the transcript, use those exact names in owner fields.",
         },
         {
           role: "user",
@@ -92,9 +98,10 @@ export async function summarizeMeetingTranscript(input: {
             `今天日期：${today}（若逐字稿出現相對時間，如「明天 / 下週一」，請以今天為基準換算）`,
             [
               "請根據逐字稿產出：會議主軸（topic）、重點摘要（bullets 5-10 點）、決策（decisions）、待辦事項（actionItems）。",
-              "待辦事項(actionItems) 是會後要做的事：誰(owner)要做什麼(item)、截止日(due)。",
-              "重要規則：若逐字稿未明確提到截止日，due 請回傳空字串，不要推測或編造年份/日期。",
-              "owner 若未明確提到，請回傳空字串。",
+              "待辦事項(actionItems) 統一包含：會後要完成的任務、會議中指派的分工與負責範圍。每一筆都必須是獨立條目 item。",
+              "owner：負責人姓名。若逐字稿能辨識發言者／被指派人，請填入該姓名；僅在完全無法判斷時才回傳空字串。",
+              "item：具體要做的事或負責範圍（一句話）。",
+              "due：若逐字稿明確提到截止日才填寫，否則回傳空字串，不要推測或編造日期。",
             ].join("\n"),
             "逐字稿如下：",
             transcript,
@@ -147,7 +154,6 @@ function extractResponseText(response: OpenAIResponse): string | null {
         const text = content.text.trim();
         if (text) return text;
       }
-      // Some variants may not label type; keep a safe fallback.
       if (!content?.type && typeof content?.text === "string") {
         const text = content.text.trim();
         if (text) return text;
@@ -178,6 +184,54 @@ function isMeetingSummary(value: unknown): value is MeetingSummary {
   return true;
 }
 
+function formatActionItemLine(item: ActionItem, index: number): string {
+  const due = item.due.trim();
+  const suffix = due ? `（截止：${due}）` : "";
+  return `${index}. ${item.item.trim()}${suffix}`;
+}
+
+function appendActionItemsGroupedByOwner(
+  lines: string[],
+  items: ActionItem[],
+  maxItems = 30
+): void {
+  const valid = items.filter((a) => a.item.trim()).slice(0, maxItems);
+  if (valid.length === 0) return;
+
+  const byOwner = new Map<string, ActionItem[]>();
+  const unassigned: ActionItem[] = [];
+
+  for (const entry of valid) {
+    const owner = entry.owner.trim();
+    if (!owner) {
+      unassigned.push(entry);
+      continue;
+    }
+    const list = byOwner.get(owner) ?? [];
+    list.push(entry);
+    byOwner.set(owner, list);
+  }
+
+  lines.push("");
+  lines.push("待辦事項：");
+
+  for (const [owner, ownerItems] of byOwner) {
+    lines.push("");
+    lines.push(`【${owner}】`);
+    ownerItems.slice(0, 12).forEach((entry, idx) => {
+      lines.push(formatActionItemLine(entry, idx + 1));
+    });
+  }
+
+  if (unassigned.length > 0) {
+    lines.push("");
+    lines.push("【待確認負責人】");
+    unassigned.slice(0, 8).forEach((entry, idx) => {
+      lines.push(formatActionItemLine(entry, idx + 1));
+    });
+  }
+}
+
 export function formatMeetingSummaryForLine(input: {
   title?: string;
   summary: MeetingSummary;
@@ -204,19 +258,7 @@ export function formatMeetingSummaryForLine(input: {
     });
   }
 
-  if (input.summary.actionItems.length > 0) {
-    lines.push("");
-    lines.push("待辦事項：");
-    input.summary.actionItems.slice(0, 10).forEach((a, idx) => {
-      const owner = a.owner.trim();
-      const due = a.due.trim();
-      const suffixParts = [owner ? `owner:${owner}` : null, due ? `due:${due}` : null].filter(
-        Boolean
-      );
-      const suffix = suffixParts.length ? `（${suffixParts.join(" / ")}）` : "";
-      lines.push(`${idx + 1}. ${a.item}${suffix}`);
-    });
-  }
+  appendActionItemsGroupedByOwner(lines, input.summary.actionItems);
 
   if (input.sourceUrl?.trim()) {
     lines.push("");
@@ -225,4 +267,3 @@ export function formatMeetingSummaryForLine(input: {
 
   return lines.join("\n");
 }
-

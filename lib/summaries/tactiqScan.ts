@@ -6,17 +6,20 @@ import {
   incrementEventAutoSummaryAttempt,
   markEventAutoSummaryCompleted,
   markEventAutoSummaryFailed,
+  markGoogleCredentialRevoked,
 } from "@/lib/db/repository";
 import {
   listTactiqTranscripts,
   pickBestTranscript,
 } from "@/lib/google/driveTranscript";
+import { GoogleRefreshTokenInvalidError } from "@/lib/google/oauth";
 import { createMessagingClient } from "@/lib/line/messagingClient";
 import {
   buildTranscriptSearchWindow,
-  getDefaultMaxAttempts,
+  getAutoSummaryScanDeadlineHours,
+  isAutoSummaryScanPastDeadline,
   resolveAutoSummaryRetryDelaySeconds,
-  resolveEstimatedEventEnd,
+  resolveTranscriptPickReferenceTime,
 } from "@/lib/summaries/schedule";
 import { startSummaryFromDriveFile } from "@/lib/summaries/startSummary";
 import { publishTactiqScanJob } from "@/lib/summaries/qstash";
@@ -40,7 +43,6 @@ export async function runTactiqScanForEvent(input: {
 }): Promise<TactiqScanResult> {
   const eventId = input.eventId;
   const attempt = Math.max(1, input.attempt ?? 1);
-  const maxAttempts = getDefaultMaxAttempts();
 
   const event = await getEventAutoSummaryDetails(eventId);
   if (!event) {
@@ -96,17 +98,64 @@ export async function runTactiqScanForEvent(input: {
   );
 
   const excluded = await getProcessedDriveFileIds();
-  const candidates = await listTactiqTranscripts({
-    refreshToken: credential.refreshToken,
-    windowStart,
-    windowEnd,
+  let candidates;
+  try {
+    candidates = await listTactiqTranscripts({
+      refreshToken: credential.refreshToken,
+      windowStart,
+      windowEnd,
+    });
+  } catch (err) {
+    if (err instanceof GoogleRefreshTokenInvalidError) {
+      // Host's token expired/revoked — drop it and ask them to re-authorize.
+      await markGoogleCredentialRevoked(hostLineUserId);
+      const message = "google_reauth_required";
+      await markEventAutoSummaryFailed(eventId, message);
+      try {
+        const client = createMessagingClient();
+        await client.pushMessage({
+          to: event.lineGroupId,
+          messages: [
+            {
+              type: "text",
+              text: [
+                "【自動會議摘要】",
+                "主持人的 Google 授權已過期，無法讀取 Tactiq 逐字稿。",
+                "請主持人重新完成 Google 授權後，在群組輸入「掃描逐字稿」重試。",
+              ].join("\n"),
+            },
+          ],
+        });
+      } catch (pushErr) {
+        console.error("[tactiq-scan.notify-reauth]", pushErr);
+      }
+      return { status: "failed", message };
+    }
+    throw err;
+  }
+
+  const referenceTime = resolveTranscriptPickReferenceTime(
+    event.startsAt,
+    event.endsAt,
+    now
+  );
+  const picked = pickBestTranscript(candidates, {
+    excludedFileIds: excluded,
+    referenceTime,
+    eventTitle: event.title,
   });
 
-  const referenceTime = resolveEstimatedEventEnd(event.startsAt, event.endsAt);
-  const picked = pickBestTranscript(candidates, excluded, referenceTime);
-
   if (!picked) {
-    if (attempt >= maxAttempts) {
+    const deadlineHours = getAutoSummaryScanDeadlineHours();
+    const retryDelaySec = resolveAutoSummaryRetryDelaySeconds();
+    const nextRunAt = new Date(now.getTime() + retryDelaySec * 1000);
+    const pastDeadline = isAutoSummaryScanPastDeadline(event.startsAt, now);
+    const nextWouldExceedDeadline = isAutoSummaryScanPastDeadline(
+      event.startsAt,
+      nextRunAt
+    );
+
+    if (pastDeadline || nextWouldExceedDeadline) {
       const message = "transcript_not_found";
       await markEventAutoSummaryFailed(eventId, message);
       try {
@@ -118,7 +167,7 @@ export async function runTactiqScanForEvent(input: {
               type: "text",
               text: [
                 "【自動會議摘要】",
-                `在 Drive 的 Tactiq 資料夾找不到這場會議的逐字稿（已重試 ${maxAttempts} 次）。`,
+                `在 Drive 的 Tactiq 資料夾找不到這場會議的逐字稿（已於會議開始後 ${deadlineHours} 小時內重試）。`,
                 "請確認 Tactiq 已開啟 CC 並同步到 Drive，或手動貼上逐字稿連結請我總結。",
               ].join("\n"),
             },
@@ -134,7 +183,7 @@ export async function runTactiqScanForEvent(input: {
     await publishTactiqScanJob({
       eventId,
       attempt: nextAttempt,
-      delaySeconds: resolveAutoSummaryRetryDelaySeconds(),
+      delaySeconds: retryDelaySec,
     });
 
     return {
@@ -192,13 +241,25 @@ export async function runTactiqScanForGroup(input: {
   const windowStart = new Date(now.getTime() - lookbackMs);
 
   const excluded = await getProcessedDriveFileIds();
-  const candidates = await listTactiqTranscripts({
-    refreshToken: credential.refreshToken,
-    windowStart,
-    windowEnd: now,
-  });
+  let candidates;
+  try {
+    candidates = await listTactiqTranscripts({
+      refreshToken: credential.refreshToken,
+      windowStart,
+      windowEnd: now,
+    });
+  } catch (err) {
+    if (err instanceof GoogleRefreshTokenInvalidError) {
+      await markGoogleCredentialRevoked(hostLineUserId);
+      return { status: "failed", message: "google_reauth_required" };
+    }
+    throw err;
+  }
 
-  const picked = pickBestTranscript(candidates, excluded, now);
+  const picked = pickBestTranscript(candidates, {
+    excludedFileIds: excluded,
+    referenceTime: now,
+  });
   if (!picked) {
     return { status: "failed", message: "transcript_not_found" };
   }

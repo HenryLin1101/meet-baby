@@ -29,18 +29,22 @@ export class ScanTranscriptCommand extends CommandHandlerBase {
     const hostLineUserId =
       process.env.TACTIQ_HOST_LINE_USER_ID?.trim() || context.lineUserId;
 
-    const credential = await getGoogleCredentialByLineUserId(hostLineUserId);
-    if (!credential) {
+    const buildConsentReply = (lead: string) => {
       const consentUrl = new URL("/api/google/oauth/consent", getAppBaseUrlOrThrow());
       consentUrl.searchParams.set("lineUserId", hostLineUserId);
-      consentUrl.searchParams.set("groupId", context.lineGroupId);
+      consentUrl.searchParams.set("groupId", context.lineGroupId!);
       return {
         reply: [
-          "需要 Google Drive 授權才能掃描 Tactiq 逐字稿。",
+          lead,
           "請用 Safari/Chrome 開啟下方連結完成授權：",
           consentUrl.toString(),
         ].join("\n"),
       };
+    };
+
+    const credential = await getGoogleCredentialByLineUserId(hostLineUserId);
+    if (!credential) {
+      return buildConsentReply("需要 Google Drive 授權才能掃描 Tactiq 逐字稿。");
     }
 
     const { options, quickReplies } = await buildMeetingSelectionReplies(
@@ -108,6 +112,12 @@ export class ScanTranscriptCommand extends CommandHandlerBase {
     if (result.status === "started") {
       return {
         reply: "已在 Drive 找到逐字稿，正在整理會議重點，完成後會推送到群組。",
+      };
+    }
+
+    if (result.status === "failed" && result.message === "google_reauth_required") {
+      return {
+        reply: "Google 授權已過期，請輸入「掃描逐字稿」後按照指示重新完成授權。",
       };
     }
 

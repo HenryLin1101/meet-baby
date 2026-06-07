@@ -17,6 +17,7 @@ type LineUserRow = {
   status_message: string | null;
   language_code: string | null;
   email: string | null;
+  google_display_name: string | null;
 };
 
 export type LineUserProfileInput = {
@@ -40,6 +41,7 @@ export type LineUserReference = {
   lineUserId: string;
   displayName: string;
   email: string | null;
+  googleDisplayName: string | null;
 };
 
 type GroupMemberRow = {
@@ -82,11 +84,9 @@ type ListedEventRow = {
   ends_at: string | null;
   timezone: string;
   status: string;
-};
-
-type ListedEventOwnerRow = {
-  id: number;
-  display_name: string;
+  meeting_url: string | null;
+  drive_folder_id: string | null;
+  allow_others_to_modify: boolean | null;
 };
 
 type UpcomingEventRow = {
@@ -112,6 +112,7 @@ type EventReminderEventRow = {
   reminder_processing_at: string | null;
   reminder_sent_at: string | null;
   reminder_last_error: string | null;
+  reminder_lead_time_minutes: number;
   meeting_url: string | null;
 };
 
@@ -129,6 +130,9 @@ export type CreateEventWithAttendeesInput = {
   endsAt?: string | null;
   timezone?: string;
   attendeeUserIds: number[];
+  reminderLeadTimeMinutes?: number;
+  /** Defaults to true. Pass false to restrict edit/cancel to the creator. */
+  allowOthersToModify?: boolean;
 };
 
 export type CreatedEvent = {
@@ -155,6 +159,10 @@ export type ListedEvent = {
   timezone: string;
   status: string;
   ownerDisplayName: string;
+  ownerLineUserId: string | null;
+  meetingUrl: string | null;
+  driveFolderId: string | null;
+  allowOthersToModify: boolean;
 };
 
 export type UserChatGroup = {
@@ -189,6 +197,7 @@ export type EventReminderDetails = {
   reminderMessageId: string | null;
   reminderScheduledAt: string | null;
   reminderSentAt: string | null;
+  reminderLeadTimeMinutes: number;
   meetingUrl: string | null;
   attendees: LineUserReference[];
 };
@@ -377,7 +386,7 @@ async function getLineUserByLineUserId(
   const { data, error } = await supabase
     .from("line_users")
     .select(
-      "id, line_user_id, display_name, picture_url, status_message, language_code, email"
+      "id, line_user_id, display_name, picture_url, status_message, language_code, email, google_display_name"
     )
     .eq("line_user_id", lineUserId)
     .maybeSingle<LineUserRow>();
@@ -608,6 +617,22 @@ export async function setLineUserEmailByLineUserId(
   assertNoError(error, "更新 LINE 使用者 email 失敗。");
 }
 
+export async function setLineUserGoogleDisplayNameByLineUserId(
+  lineUserId: string,
+  googleDisplayName: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedLineUserId = requireNonEmpty(lineUserId, "lineUserId");
+  const normalizedName = requireNonEmpty(googleDisplayName, "googleDisplayName");
+
+  const { error } = await supabase
+    .from("line_users")
+    .update({ google_display_name: normalizedName })
+    .eq("line_user_id", normalizedLineUserId);
+
+  assertNoError(error, "更新 LINE 使用者 Google 名稱失敗。");
+}
+
 export async function listLineUsersByIds(
   userIds: number[]
 ): Promise<LineUserReference[]> {
@@ -620,7 +645,7 @@ export async function listLineUsersByIds(
 
   const { data, error } = await supabase
     .from("line_users")
-    .select("id, line_user_id, display_name, email")
+    .select("id, line_user_id, display_name, email, google_display_name")
     .in("id", normalizedUserIds)
     .order("display_name", { ascending: true })
     .order("id", { ascending: true });
@@ -632,6 +657,10 @@ export async function listLineUsersByIds(
     lineUserId: String(row.line_user_id),
     displayName: String(row.display_name),
     email: row.email === null || row.email === undefined ? null : String(row.email),
+    googleDisplayName:
+      row.google_display_name === null || row.google_display_name === undefined
+        ? null
+        : String(row.google_display_name),
   }));
 }
 
@@ -720,7 +749,7 @@ export async function listGroupEvents(
   const { data: events, error: eventError } = await supabase
     .from("events")
     .select(
-      "id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status"
+      "id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status, meeting_url, drive_folder_id, allow_others_to_modify"
     )
     .eq("group_id", group.id)
     .eq("status", "scheduled")
@@ -740,30 +769,42 @@ export async function listGroupEvents(
 
   const { data: owners, error: ownerError } = await supabase
     .from("line_users")
-    .select("id, display_name")
+    .select("id, display_name, line_user_id")
     .in("id", ownerIds);
 
   assertNoError(ownerError, "讀取活動建立者資料失敗。");
 
+  const groupOwnerRows = (owners ?? []) as Array<{
+    id: number;
+    display_name: string;
+    line_user_id: string;
+  }>;
   const ownerMap = new Map<number, string>(
-    ((owners ?? []) as ListedEventOwnerRow[]).map((owner) => [
-      Number(owner.id),
-      String(owner.display_name),
-    ])
+    groupOwnerRows.map((owner) => [Number(owner.id), String(owner.display_name)])
+  );
+  const groupOwnerLineUserIdMap = new Map<number, string>(
+    groupOwnerRows.map((owner) => [Number(owner.id), String(owner.line_user_id)])
   );
 
-  return rows.map((row) => ({
-    eventId: Number(row.id),
-    title: String(row.title),
-    description: row.description === null ? null : String(row.description),
-    location: row.location === null ? null : String(row.location),
-    startsAt: new Date(row.starts_at).toISOString(),
-    endsAt: row.ends_at === null ? null : new Date(row.ends_at).toISOString(),
-    timezone: String(row.timezone),
-    status: String(row.status),
-    ownerDisplayName:
-      ownerMap.get(Number(row.created_by_user_id)) ?? "未知建立者",
-  }));
+  return rows.map((row) => {
+    const ownerInternalId = Number(row.created_by_user_id);
+    return {
+      eventId: Number(row.id),
+      title: String(row.title),
+      description: row.description === null ? null : String(row.description),
+      location: row.location === null ? null : String(row.location),
+      startsAt: new Date(row.starts_at).toISOString(),
+      endsAt: row.ends_at === null ? null : new Date(row.ends_at).toISOString(),
+      timezone: String(row.timezone),
+      status: String(row.status),
+      ownerDisplayName: ownerMap.get(ownerInternalId) ?? "未知建立者",
+      ownerLineUserId: groupOwnerLineUserIdMap.get(ownerInternalId) ?? null,
+      meetingUrl: row.meeting_url === null ? null : String(row.meeting_url),
+      driveFolderId:
+        row.drive_folder_id === null ? null : String(row.drive_folder_id),
+      allowOthersToModify: row.allow_others_to_modify !== false,
+    };
+  });
 }
 
 export async function listUserGroups(lineUserId: string): Promise<UserChatGroup[]> {
@@ -817,7 +858,7 @@ export async function listEventsByGroupIds(input: {
   let query = supabase
     .from("events")
     .select(
-      "id, group_id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status"
+      "id, group_id, created_by_user_id, title, description, location, starts_at, ends_at, timezone, status, meeting_url, drive_folder_id, allow_others_to_modify"
     )
     .in("group_id", groupIds)
     .eq("status", "scheduled")
@@ -844,15 +885,20 @@ export async function listEventsByGroupIds(input: {
   );
   const { data: owners, error: ownerError } = await supabase
     .from("line_users")
-    .select("id, display_name")
+    .select("id, display_name, line_user_id")
     .in("id", ownerIds);
   assertNoError(ownerError, "讀取活動建立者資料失敗。");
 
+  const ownerRows = (owners ?? []) as Array<{
+    id: number;
+    display_name: string;
+    line_user_id: string;
+  }>;
   const ownerMap = new Map<number, string>(
-    ((owners ?? []) as ListedEventOwnerRow[]).map((owner) => [
-      Number(owner.id),
-      String(owner.display_name),
-    ])
+    ownerRows.map((owner) => [Number(owner.id), String(owner.display_name)])
+  );
+  const ownerLineUserIdMap = new Map<number, string>(
+    ownerRows.map((owner) => [Number(owner.id), String(owner.line_user_id)])
   );
 
   return rows
@@ -860,6 +906,7 @@ export async function listEventsByGroupIds(input: {
       const groupId = Number((row as { group_id?: unknown }).group_id);
       const lineGroupId = groupLineIdById.get(groupId);
       if (!lineGroupId) return null;
+      const ownerInternalId = Number(row.created_by_user_id);
       return {
         lineGroupId,
         eventId: Number(row.id),
@@ -870,8 +917,12 @@ export async function listEventsByGroupIds(input: {
         endsAt: row.ends_at === null ? null : new Date(row.ends_at).toISOString(),
         timezone: String(row.timezone),
         status: String(row.status),
-        ownerDisplayName:
-          ownerMap.get(Number(row.created_by_user_id)) ?? "未知建立者",
+        ownerDisplayName: ownerMap.get(ownerInternalId) ?? "未知建立者",
+        ownerLineUserId: ownerLineUserIdMap.get(ownerInternalId) ?? null,
+        meetingUrl: row.meeting_url === null ? null : String(row.meeting_url),
+        driveFolderId:
+          row.drive_folder_id === null ? null : String(row.drive_folder_id),
+        allowOthersToModify: row.allow_others_to_modify !== false,
       } satisfies ListedEventWithGroup;
     })
     .filter((x): x is ListedEventWithGroup => Boolean(x));
@@ -977,7 +1028,7 @@ export async function getEventReminderDetails(
   const { data: event, error: eventError } = await supabase
     .from("events")
     .select(
-      "id, group_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_scheduled_at, reminder_processing_at, reminder_sent_at, reminder_last_error, meeting_url"
+      "id, group_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_scheduled_at, reminder_processing_at, reminder_sent_at, reminder_last_error, reminder_lead_time_minutes, meeting_url"
     )
     .eq("id", normalizedEventId)
     .maybeSingle<EventReminderEventRow>();
@@ -1028,6 +1079,7 @@ export async function getEventReminderDetails(
         : new Date(event.reminder_scheduled_at).toISOString(),
     reminderSentAt:
       event.reminder_sent_at === null ? null : new Date(event.reminder_sent_at).toISOString(),
+    reminderLeadTimeMinutes: Number(event.reminder_lead_time_minutes) || 5,
     meetingUrl: event.meeting_url === null ? null : String(event.meeting_url),
     attendees,
   };
@@ -1058,6 +1110,13 @@ export async function createEventWithAttendees(
     throw new RepositoryError("請至少選擇一位參與者。", 400, "INVALID_INPUT");
   }
 
+  const leadTimeMinutes =
+    typeof input.reminderLeadTimeMinutes === "number" &&
+    Number.isFinite(input.reminderLeadTimeMinutes) &&
+    input.reminderLeadTimeMinutes > 0
+      ? Math.round(input.reminderLeadTimeMinutes)
+      : 5;
+
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .rpc("create_event_with_attendees", {
@@ -1070,6 +1129,7 @@ export async function createEventWithAttendees(
       p_ends_at: endsAt?.toISOString() ?? null,
       p_timezone: timezone,
       p_attendee_user_ids: attendeeUserIds,
+      p_reminder_lead_time_minutes: leadTimeMinutes,
     })
     .single<CreatedEventRow>();
 
@@ -1077,6 +1137,15 @@ export async function createEventWithAttendees(
 
   if (!data) {
     throw new RepositoryError("建立活動失敗。", 500, "DB_ERROR");
+  }
+
+  // Default is TRUE in DB; only persist when the caller explicitly opts out.
+  if (input.allowOthersToModify === false) {
+    const { error: flagError } = await supabase
+      .from("events")
+      .update({ allow_others_to_modify: false })
+      .eq("id", Number(data.event_id));
+    assertNoError(flagError, "更新活動權限設定失敗。");
   }
 
   return toCreatedEvent(data);
@@ -1181,6 +1250,29 @@ export async function upsertGoogleCredentialForLineUser(
     { onConflict: "user_id" }
   );
   assertNoError(error, "儲存 Google 憑證失敗。");
+}
+
+/**
+ * Marks the user's Google credential as revoked so it is no longer returned by
+ * {@link getGoogleCredentialByLineUserId}. Call this when Google rejects the
+ * refresh token with `invalid_grant` — the next credential lookup returns null,
+ * which makes the existing re-prompt paths fire. Idempotent / no-op if there is
+ * no active credential.
+ */
+export async function markGoogleCredentialRevoked(
+  lineUserId: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const normalizedLineUserId = requireNonEmpty(lineUserId, "lineUserId");
+  const user = await getLineUserByLineUserId(normalizedLineUserId);
+  if (!user) return;
+
+  const { error } = await supabase
+    .from("google_credentials")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("user_id", user.id)
+    .is("revoked_at", null);
+  assertNoError(error, "標記 Google 憑證失效失敗。");
 }
 
 export async function getGoogleCredentialByLineUserId(
@@ -1316,7 +1408,7 @@ export async function getEventSummaryProcessingDetails(
   const { data: summary, error: summaryError } = await supabase
     .from("event_summaries")
     .select(
-      "id, event_id, group_id, requested_by_user_id, source_drive_url, source_drive_file_id, status, processing_at, completed_at, last_error, qstash_message_id"
+      "id, group_id, requested_by_user_id, source_drive_url, source_drive_file_id, status, processing_at, completed_at, last_error, qstash_message_id, event_id"
     )
     .eq("id", normalizedSummaryId)
     .maybeSingle<EventSummaryRow>();
@@ -1620,10 +1712,87 @@ export async function getProcessedDriveFileIds(): Promise<Set<string>> {
 // Todo Items
 // ---------------------------------------------------------------------------
 
+export async function listEventAttendeeUserIds(eventId: number): Promise<number[]> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
+
+  const { data, error } = await supabase
+    .from("event_attendees")
+    .select("user_id")
+    .eq("event_id", normalizedEventId)
+    .order("user_id", { ascending: true });
+  assertNoError(error, "讀取活動參與者失敗。");
+
+  return [...new Set(
+    ((data ?? []) as EventReminderAttendeeRow[])
+      .map((row) => Number(row.user_id))
+      .filter(Number.isFinite)
+  )];
+}
+
+export async function listTodoOwnerCandidatesForSummary(input: {
+  lineGroupId: string;
+  eventId?: number | null;
+}): Promise<
+  Array<{
+    userId: number;
+    lineUserId: string;
+    displayName: string;
+    email: string | null;
+    googleDisplayName: string | null;
+  }>
+> {
+  const userIds = new Set<number>();
+
+  if (typeof input.eventId === "number" && Number.isFinite(input.eventId)) {
+    for (const userId of await listEventAttendeeUserIds(input.eventId)) {
+      userIds.add(userId);
+    }
+  }
+
+  try {
+    const groupMembers = await listActiveGroupMembers(input.lineGroupId);
+    for (const member of groupMembers) {
+      userIds.add(member.userId);
+    }
+  } catch (error) {
+    if (!(error instanceof RepositoryError && error.code === "GROUP_NOT_FOUND")) {
+      throw error;
+    }
+  }
+
+  if (userIds.size === 0) {
+    return [];
+  }
+
+  return listLineUsersByIds([...userIds]);
+}
+
+export async function listActiveGroupMembersWithEmail(
+  lineGroupId: string
+): Promise<(GroupMember & { email: string | null; googleDisplayName: string | null })[]> {
+  const members = await listActiveGroupMembers(lineGroupId);
+  if (members.length === 0) return [];
+
+  const refs = await listLineUsersByIds(members.map((member) => member.userId));
+  const profileMap = new Map(refs.map((ref) => [ref.userId, ref]));
+
+  return members.map((member) => ({
+    ...member,
+    email: profileMap.get(member.userId)?.email ?? null,
+    googleDisplayName: profileMap.get(member.userId)?.googleDisplayName ?? null,
+  }));
+}
+
 export async function createTodoItemsFromSummary(input: {
   summaryId: number;
   groupId: number;
-  items: { item: string; owner: string; due: string }[];
+  items: {
+    item: string;
+    owner: string;
+    due: string;
+    assignedUserIds?: number[];
+  }[];
 }): Promise<void> {
   if (input.items.length === 0) return;
 
@@ -1639,8 +1808,18 @@ export async function createTodoItemsFromSummary(input: {
     due: i.due ?? "",
   }));
 
-  const { error } = await supabase.from("todo_items").insert(rows);
+  const { data, error } = await supabase
+    .from("todo_items")
+    .insert(rows)
+    .select("id");
   assertNoError(error, "建立待辦事項失敗。");
+
+  const inserted = (data ?? []) as { id: number }[];
+  for (let index = 0; index < inserted.length; index += 1) {
+    const assignedUserIds = input.items[index]?.assignedUserIds ?? [];
+    if (assignedUserIds.length === 0) continue;
+    await syncTodoAssignees(supabase, Number(inserted[index]?.id), assignedUserIds);
+  }
 }
 
 async function syncTodoAssignees(
@@ -2055,4 +2234,263 @@ export async function listRecentGroupEvents(
       startsAt: new Date(row.starts_at).toISOString(),
     })
   );
+}
+
+export type MutableEventContext = {
+  eventId: number;
+  groupId: number;
+  lineGroupId: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  startsAt: string;
+  timezone: string;
+  status: string;
+  reminderMessageId: string | null;
+  reminderLeadTimeMinutes: number;
+  autoSummaryMessageId: string | null;
+  calendarEventId: string | null;
+  meetingUrl: string | null;
+  creatorLineUserId: string;
+  allowOthersToModify: boolean;
+  /** True when the requester is the event creator. */
+  requesterIsCreator: boolean;
+};
+
+type MutableEventRow = {
+  id: number;
+  group_id: number;
+  created_by_user_id: number;
+  title: string;
+  description: string | null;
+  location: string | null;
+  starts_at: string;
+  timezone: string;
+  status: string;
+  reminder_message_id: string | null;
+  reminder_lead_time_minutes: number | null;
+  auto_summary_qstash_message_id: string | null;
+  calendar_event_id: string | null;
+  meeting_url: string | null;
+  allow_others_to_modify: boolean | null;
+};
+
+/** 取得事件變更（取消／編輯）所需的所有 metadata，並驗證 requester 是事件所屬群組的有效成員。 */
+async function loadMutableEventForUser(
+  eventId: number,
+  requesterLineUserId: string
+): Promise<MutableEventContext> {
+  const supabase = getSupabaseAdmin();
+  const normalizedEventId = requireFiniteNumber(eventId, "eventId");
+
+  const { data: eventRow, error: eventError } = await supabase
+    .from("events")
+    .select(
+      "id, group_id, created_by_user_id, title, description, location, starts_at, timezone, status, reminder_message_id, reminder_lead_time_minutes, auto_summary_qstash_message_id, calendar_event_id, meeting_url, allow_others_to_modify"
+    )
+    .eq("id", normalizedEventId)
+    .maybeSingle<MutableEventRow>();
+  assertNoError(eventError, "讀取活動失敗。");
+  if (!eventRow) {
+    throw new RepositoryError("找不到活動。", 404, "EVENT_NOT_FOUND");
+  }
+
+  const requester = await getLineUserByLineUserId(requesterLineUserId);
+  if (!requester) {
+    throw new RepositoryError("找不到對應的 LINE 使用者資料。", 404, "USER_NOT_FOUND");
+  }
+
+  const membership = await getActiveMembership(Number(eventRow.group_id), Number(requester.id));
+  if (!membership) {
+    throw new RepositoryError("你不是此群組的有效成員。", 403, "FORBIDDEN");
+  }
+
+  const { data: group, error: groupError } = await supabase
+    .from("chat_groups")
+    .select("id, line_group_id")
+    .eq("id", Number(eventRow.group_id))
+    .maybeSingle<{ id: number; line_group_id: string }>();
+  assertNoError(groupError, "讀取群組資料失敗。");
+  if (!group) {
+    throw new RepositoryError("群組資料不存在。", 404, "GROUP_NOT_FOUND");
+  }
+
+  const { data: creator, error: creatorError } = await supabase
+    .from("line_users")
+    .select("line_user_id")
+    .eq("id", Number(eventRow.created_by_user_id))
+    .maybeSingle<{ line_user_id: string }>();
+  assertNoError(creatorError, "讀取活動建立者資料失敗。");
+
+  const allowOthersToModify = eventRow.allow_others_to_modify !== false; // null/undefined → true
+  const requesterIsCreator = Number(requester.id) === Number(eventRow.created_by_user_id);
+  if (!requesterIsCreator && !allowOthersToModify) {
+    throw new RepositoryError(
+      "只有會議建立者可以編輯或取消這場會議。",
+      403,
+      "FORBIDDEN"
+    );
+  }
+
+  return {
+    eventId: Number(eventRow.id),
+    groupId: Number(eventRow.group_id),
+    lineGroupId: String(group.line_group_id),
+    title: String(eventRow.title),
+    description: eventRow.description === null ? null : String(eventRow.description),
+    location: eventRow.location === null ? null : String(eventRow.location),
+    startsAt: new Date(eventRow.starts_at).toISOString(),
+    timezone: String(eventRow.timezone),
+    status: String(eventRow.status),
+    reminderMessageId:
+      eventRow.reminder_message_id === null ? null : String(eventRow.reminder_message_id),
+    reminderLeadTimeMinutes: Number(eventRow.reminder_lead_time_minutes) || 5,
+    autoSummaryMessageId:
+      eventRow.auto_summary_qstash_message_id === null
+        ? null
+        : String(eventRow.auto_summary_qstash_message_id),
+    calendarEventId:
+      eventRow.calendar_event_id === null ? null : String(eventRow.calendar_event_id),
+    meetingUrl: eventRow.meeting_url === null ? null : String(eventRow.meeting_url),
+    creatorLineUserId: creator?.line_user_id ? String(creator.line_user_id) : "",
+    allowOthersToModify,
+    requesterIsCreator,
+  };
+}
+
+/** 取消活動：把 status 設為 'cancelled'，並清掉已排程的訊息 ID。回傳變更前的 metadata 供外部清理副作用使用。 */
+/** 取得每個 event 最新一筆 status='completed' 的摘要文字（給 dashboard 顯示用）。 */
+export async function listLatestCompletedSummariesByEventIds(
+  eventIds: number[]
+): Promise<Map<number, string>> {
+  if (eventIds.length === 0) return new Map();
+  const supabase = getSupabaseAdmin();
+  const normalized = [...new Set(eventIds.map(Number))].filter(Number.isFinite);
+  if (normalized.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from("event_summaries")
+    .select("event_id, summary_text, completed_at")
+    .in("event_id", normalized)
+    .eq("status", "completed")
+    .not("summary_text", "is", null)
+    .order("completed_at", { ascending: false });
+  assertNoError(error, "讀取會議摘要失敗。");
+
+  const map = new Map<number, string>();
+  for (const row of (data ?? []) as Array<{
+    event_id: number;
+    summary_text: string | null;
+  }>) {
+    const eventId = Number(row.event_id);
+    if (!Number.isFinite(eventId)) continue;
+    if (map.has(eventId)) continue; // already have the latest (sorted desc)
+    if (!row.summary_text) continue;
+    map.set(eventId, String(row.summary_text));
+  }
+  return map;
+}
+
+export async function cancelEventForUser(input: {
+  eventId: number;
+  requesterLineUserId: string;
+}): Promise<MutableEventContext> {
+  const context = await loadMutableEventForUser(input.eventId, input.requesterLineUserId);
+  if (context.status === "cancelled") {
+    return context;
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase
+    .from("events")
+    .update({
+      status: "cancelled",
+      reminder_message_id: null,
+      reminder_scheduled_at: null,
+      auto_summary_qstash_message_id: null,
+      auto_summary_scheduled_at: null,
+    })
+    .eq("id", context.eventId);
+  assertNoError(error, "取消活動失敗。");
+
+  return context;
+}
+
+export type EventUpdatableFields = {
+  title?: string;
+  startsAt?: string;
+  location?: string | null;
+  description?: string | null;
+  /** Creator-only. Non-creator requests with this field set will be rejected. */
+  allowOthersToModify?: boolean;
+};
+
+export type UpdatedEventResult = {
+  previous: MutableEventContext;
+  next: MutableEventContext;
+  timeChanged: boolean;
+};
+
+/** 編輯活動（限 title / startsAt / location / description）。回傳變更前後的 metadata 與時間是否變動。 */
+export async function updateEventForUser(input: {
+  eventId: number;
+  requesterLineUserId: string;
+  fields: EventUpdatableFields;
+}): Promise<UpdatedEventResult> {
+  const previous = await loadMutableEventForUser(input.eventId, input.requesterLineUserId);
+  if (previous.status === "cancelled") {
+    throw new RepositoryError("已取消的活動無法修改。", 400, "INVALID_STATE");
+  }
+
+  const patch: Record<string, unknown> = {};
+  let timeChanged = false;
+
+  if (input.fields.title !== undefined) {
+    const trimmed = input.fields.title.trim();
+    if (!trimmed) {
+      throw new RepositoryError("會議主題不可為空。", 400, "INVALID_INPUT");
+    }
+    patch.title = trimmed;
+  }
+  if (input.fields.startsAt !== undefined) {
+    const date = new Date(input.fields.startsAt);
+    if (Number.isNaN(date.getTime())) {
+      throw new RepositoryError("startsAt 格式不正確。", 400, "INVALID_INPUT");
+    }
+    const nextIso = date.toISOString();
+    if (nextIso !== previous.startsAt) {
+      patch.starts_at = nextIso;
+      timeChanged = true;
+    }
+  }
+  if (input.fields.location !== undefined) {
+    patch.location = input.fields.location?.trim() ? input.fields.location.trim() : null;
+  }
+  if (input.fields.description !== undefined) {
+    patch.description = input.fields.description?.trim() ? input.fields.description.trim() : null;
+  }
+  if (input.fields.allowOthersToModify !== undefined) {
+    if (!previous.requesterIsCreator) {
+      throw new RepositoryError(
+        "只有會議建立者可以變更權限設定。",
+        403,
+        "FORBIDDEN"
+      );
+    }
+    patch.allow_others_to_modify = Boolean(input.fields.allowOthersToModify);
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return { previous, next: previous, timeChanged: false };
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase
+    .from("events")
+    .update(patch)
+    .eq("id", previous.eventId);
+  assertNoError(error, "更新活動失敗。");
+
+  const next = await loadMutableEventForUser(input.eventId, input.requesterLineUserId);
+  return { previous, next, timeChanged };
 }
