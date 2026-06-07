@@ -2023,3 +2023,36 @@ export async function setEventDriveFolderId(
     .eq("id", normalizedEventId);
   assertNoError(error, "更新活動 Drive 資料夾 ID 失敗。");
 }
+
+export async function listRecentGroupEvents(
+  lineGroupId: string,
+  limitDays = 7
+): Promise<Array<{ eventId: number; title: string; startsAt: string }>> {
+  const supabase = getSupabaseAdmin();
+  const group = await getChatGroupByLineGroupId(lineGroupId);
+  if (!group) return [];
+
+  const since = new Date();
+  since.setDate(since.getDate() - limitDays);
+
+  const { data, error } = await supabase
+    .from("events")
+    .select("id, title, starts_at")
+    .eq("group_id", group.id)
+    .gte("starts_at", since.toISOString())
+    .order("starts_at", { ascending: false })
+    .limit(5);
+
+  if (error) {
+    console.error("[listRecentGroupEvents]", error);
+    return [];
+  }
+
+  return ((data ?? []) as Array<{ id: number; title: string; starts_at: string }>).map(
+    (row) => ({
+      eventId: Number(row.id),
+      title: String(row.title),
+      startsAt: new Date(row.starts_at).toISOString(),
+    })
+  );
+}
