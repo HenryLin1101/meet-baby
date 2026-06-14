@@ -275,4 +275,4 @@ npm run test:watch  # 監看模式
 | --- | --- | --- |
 | 系統設計文件 | User Story Mapping、BPMN 流程圖、EER 圖、API 文件、測試報告 | [米特寶寶M4文件_重新排版.pdf](./米特寶寶M4文件_重新排版.pdf) |
 | EER 資料庫圖 | 線上互動式 ER 圖 | <https://dbdiagram.io/d/meet-baby-EER-6a1be4bd2eeb2f46cd253260> |
-| 專案進度看板 | Trello 看板 | <https://trello.com/b/qVLyxrHj/%E7%B1%B3%E7%89%B9%E5%AF%B6%E5%AF%B6> |
+| 專案進度看板 | Trello 看板 | <https://trello.com/invite/b/6a11b170803299cd0e8ef912/ATTI708a3c12b3573d0173bfcf845fb255905B21C7AD/米特寶寶> |
