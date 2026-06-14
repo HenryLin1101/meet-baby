@@ -179,11 +179,13 @@ npm run dev
 | `events` | 會議事件（含 Calendar / Drive 關聯） |
 | `event_attendees` | 會議參加者 |
 | `event_summaries` | 會議摘要資訊 |
+| `event_notes` | 會議筆記 |
 | `todo_items` | 專案代辦事項 |
 | `todo_item_assignees` | 代辦事項指派關聯 |
-| `documents_chunks` | RAG 向量資料（pgvector） |
+| `document_chunks` | RAG 向量資料（pgvector） |
 | `drive_indexed_files` | 已索引的 Drive 檔案追蹤紀錄 |
 | `google_credentials` | 使用者的 Google OAuth refresh token |
+| `google_oauth_states` | Google OAuth 授權流程的 state 暫存 |
 | `webhook_event_logs` | LINE webhook 事件日誌 |
 
 完整 EER 圖：<https://dbdiagram.io/d/meet-baby-EER-6a1be4bd2eeb2f46cd253260>
@@ -198,6 +200,7 @@ npm run dev
 | --- | --- | --- | --- |
 | POST | `/api/line` | 接收 LINE webhook | X-Line-Signature |
 | GET | `/api/dashboard` | 取得使用者所有群組與會議 | LINE Bearer |
+| GET | `/api/events` | 取得會議列表 | LINE Bearer |
 | POST | `/api/events` | 建立新會議 | LINE Bearer |
 | PATCH | `/api/events/[eventId]` | 更新會議資訊 | LINE Bearer |
 | DELETE | `/api/events/[eventId]` | 取消會議 | LINE Bearer |
@@ -208,14 +211,15 @@ npm run dev
 | GET | `/api/group-members` | 取得群組成員列表 | LINE Bearer |
 | POST | `/api/rag` | RAG 智慧查詢歷史會議與文件 | LINE Bearer |
 | GET | `/api/google/calendar-scope` | 檢查 Google Calendar 授權狀態 | LINE Bearer |
-| GET | `/api/google/oauth/start` · `/consent` | 導向 Google OAuth 授權頁面 | — |
+| POST | `/api/google/oauth/start` | 產生 Google OAuth 授權連結 | LINE Bearer |
+| GET | `/api/google/oauth/consent` | Google OAuth 同意頁導向 | — |
 | GET | `/api/google/oauth/callback` | Google OAuth 回調處理 | — |
 | GET | `/api/google/drive-folder` | 取得群組 Drive 資料夾連結 | LINE Bearer |
 | POST | `/api/qstash/summary` | 執行會議摘要生成 | QStash Signature |
 | POST/GET | `/api/qstash/drive-scan` | 掃描 Drive 資料夾並索引檔案 | QStash Signature |
 | POST | `/api/qstash/event-reminder` | 發送會議提醒推播 | QStash Signature |
 | POST | `/api/qstash/tactiq-scan` | 掃描 Tactiq 逐字稿 | QStash Signature |
-| GET | `/api/admin/drive-scan-cron` | 管理用 Drive 掃描排程 | `ADMIN_SECRET` |
+| GET/POST/DELETE | `/api/admin/drive-scan-cron` | 管理用 Drive 掃描排程的查詢 / 建立 / 刪除 | `ADMIN_SECRET` |
 
 ## LINE 指令
 
