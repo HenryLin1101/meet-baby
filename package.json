@@ -11,7 +11,9 @@
     "dev:https": "next dev --experimental-https --experimental-https-key localhost-key.pem --experimental-https-cert localhost.pem --port 9000",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --max-warnings 0"
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@line/bot-sdk": "^11.0.0",
