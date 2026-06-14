@@ -4,7 +4,7 @@
 
 成員不需要切換到其他工具，就能完成「排會議 → 開會 → 整理逐字稿 → 產生摘要與待辦 → 追蹤進度 → 查詢歷史」的完整會議生命週期。前端 UI 以 LIFF（LINE Front-end Framework）嵌入 LINE，後端部署於 Vercel。
 
-🔗 線上服務：<https://meet-baby.vercel.app>
+🔗 部署連結：<https://meet-baby.vercel.app>
 
 ## 目錄
 
@@ -12,7 +12,7 @@
 - [系統架構](#系統架構)
 - [Tech Stack](#tech-stack)
 - [專案目錄結構](#專案目錄結構)
-- [Getting Started](#getting-started)
+- [Quick Start](#quick-start)
 - [環境變數](#環境變數)
 - [資料庫](#資料庫)
 - [API 一覽](#api-一覽)
@@ -112,7 +112,7 @@ meet-baby/
 
 所有資料庫操作集中在 `lib/db/repository.ts`，是唯一的資料存取層。
 
-## Getting Started
+## Quick Start
 
 需求：Node.js >= 20.9.0。
 
