@@ -4,13 +4,15 @@
 
 成員不需要切換到其他工具，就能完成「排會議 → 開會 → 整理逐字稿 → 產生摘要與待辦 → 追蹤進度 → 查詢歷史」的完整會議生命週期。前端 UI 以 LIFF（LINE Front-end Framework）嵌入 LINE，後端部署於 Vercel。
 
+🔗 線上服務：<https://meet-baby.vercel.app>
+
 ## 目錄
 
 - [核心功能](#核心功能)
 - [系統架構](#系統架構)
-- [技術棧](#技術棧)
+- [Tech Stack](#tech-stack)
 - [專案目錄結構](#專案目錄結構)
-- [快速開始](#快速開始)
+- [Getting Started](#getting-started)
 - [環境變數](#環境變數)
 - [資料庫](#資料庫)
 - [API 一覽](#api-一覽)
@@ -57,7 +59,7 @@
 - **非同步任務**：建立會議或偵測逐字稿時，將工作丟到 **QStash**，由 `app/api/qstash/*` 端點在排定時間回呼執行（提醒推播、摘要生成、Drive 掃描）。
 - **AI 分工**：會議摘要使用 **OpenAI**（`lib/ai/openai.ts`）；RAG 的向量嵌入與問答使用 **Gemini**（`lib/ai/embeddings.ts`、`app/api/rag`）。
 
-## 技術棧
+## Tech Stack
 
 | 層級 | 技術 |
 | --- | --- |
@@ -110,7 +112,7 @@ meet-baby/
 
 所有資料庫操作集中在 `lib/db/repository.ts`，是唯一的資料存取層。
 
-## 快速開始
+## Getting Started
 
 需求：Node.js >= 20.9.0。
 
@@ -259,6 +261,8 @@ npm run test:watch  # 監看模式
 
 ## 部署
 
+正式環境：<https://meet-baby.vercel.app>
+
 部署於 **Vercel**：
 
 1. 連接此 GitHub repository 至 Vercel 專案。
@@ -273,6 +277,6 @@ npm run test:watch  # 監看模式
 
 | 文件 | 內容 | 連結 |
 | --- | --- | --- |
-| 系統設計文件 | User Story Mapping、BPMN 流程圖、EER 圖、API 文件、測試報告 | [米特寶寶M4文件_重新排版.pdf](./米特寶寶M4文件_重新排版.pdf) |
+| 系統設計文件 | User Story Mapping、BPMN 流程圖、EER 圖、API 文件、測試報告 | [米特寶寶M4文件_終版.pdf](./米特寶寶M4文件_終版.pdf) |
 | EER 資料庫圖 | 線上互動式 ER 圖 | <https://dbdiagram.io/d/meet-baby-EER-6a1be4bd2eeb2f46cd253260> |
 | 專案進度看板 | Trello 看板 | <https://trello.com/invite/b/6a11b170803299cd0e8ef912/ATTI708a3c12b3573d0173bfcf845fb255905B21C7AD/米特寶寶> |
