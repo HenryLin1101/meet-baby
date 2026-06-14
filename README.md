@@ -225,7 +225,16 @@ npm run dev
 
 ## LINE 指令
 
-在群組中可用明確前綴（`/` 或 `!`）或關鍵字觸發（指令定義於 `lib/line/commands/`，路由於 `lib/line/commandRouter.ts`）：
+主要互動方式是在群組中 **@米特寶寶**，機器人會回覆一張 Flex Message 選單，點按鈕即可使用各項功能：
+
+| 選單按鈕 | 動作 |
+| --- | --- |
+| 預約會議 | 開啟建立會議的 LIFF 介面 |
+| 儀表板 | 開啟會議與待辦總覽（LIFF Dashboard） |
+| 即將到來 | 列出即將到來的會議 |
+| 檔案管理 | 跳轉至群組的 Google Drive 資料夾 |
+
+除了選單，也可直接輸入文字指令操作（明確前綴 `/`、`!` 或關鍵字觸發；指令定義於 `lib/line/commands/`，路由於 `lib/line/commandRouter.ts`）：
 
 | 指令 | 功能 |
 | --- | --- |
@@ -235,8 +244,6 @@ npm run dev
 | Meeting | 開啟建立會議的 LIFF 介面 |
 | Upcoming | 列出即將到來的會議 |
 | Liff | 開啟對應 LIFF 功能頁 |
-
-> 當使用者 @ 機器人但無法對應到已知指令時，會回覆一張含「建立會議 / 檔案管理 / Dashboard」等按鈕的 Flex Message 選單。
 
 ## 測試
 
