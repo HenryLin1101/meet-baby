@@ -218,7 +218,8 @@ npm run dev
 | GET | `/api/google/oauth/callback` | Google OAuth 回調處理 | — |
 | GET | `/api/google/drive-folder` | 取得群組 Drive 資料夾連結 | LINE Bearer |
 | POST | `/api/qstash/summary` | 執行會議摘要生成 | QStash Signature |
-| POST/GET | `/api/qstash/drive-scan` | 掃描 Drive 資料夾並索引檔案 | QStash Signature |
+| POST | `/api/qstash/drive-scan` | 掃描 Drive 資料夾並 index 檔案 | QStash Signature |
+| GET | `/api/qstash/drive-scan` | 掃描 Drive 資料夾並 index 檔案 | — |
 | POST | `/api/qstash/event-reminder` | 發送會議提醒推播 | QStash Signature |
 | POST | `/api/qstash/tactiq-scan` | 掃描 Tactiq 逐字稿 | QStash Signature |
 | GET/POST/DELETE | `/api/admin/drive-scan-cron` | 管理用 Drive 掃描排程的查詢 / 建立 / 刪除 | `ADMIN_SECRET` |
